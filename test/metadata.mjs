@@ -99,6 +99,7 @@ test('provider catalog covers pagination, search, details, IMDb mapping, artwork
   const service = createMetadataService({ sources: sevenSources, getConfig: () => ({}), fallback: () => assert.fail('TMDB must not be called'), fetcher: async (url, options) => {
     const u = new URL(url); seen.push(u);
     assert.equal(options.headers.authorization, undefined); assert.equal(u.searchParams.has('api_key'), false);
+    if (url === trendingURL) return html(panel);
     const path = u.searchParams.get('path');
     if (u.pathname === '/api/search') return response({ results: [card, { ...card, id: 711, mediaType: 'tv', title: 'Threat Matrix' }] });
     if (u.pathname === '/api/discover') { assert.equal(u.searchParams.get('year'), '1999'); return response({ items: [card], page: 2, totalPages: 37, totalResults: 720 }); }
@@ -125,7 +126,7 @@ test('provider catalog covers pagination, search, details, IMDb mapping, artwork
   const season = await service.request('/tv/1396/season/2');
   assert.deepEqual([season.episodes[0].id, season.episodes[0].season_number, season.episodes[0].episode_number], [972873, 2, 1]);
   assert.equal((await service.request('/genre/movie/list')).genres.find(g => g.id === 18).name, 'Drama');
-  assert.ok(seen.every(u => u.hostname === '7movies.ac'));
+  assert.ok(seen.every(u => ['7movies.ac','www.themoviedb.org'].includes(u.hostname)));
   await assert.rejects(service.request('/configuration'), { status: 400 });
 });
 
@@ -151,7 +152,7 @@ test('existing search caches are ranked immediately, reuse detail metadata, and 
     { id: 102, name: 'VisionQuest', media_type: 'tv' },
     { id: 101, title: 'Vision Quest', media_type: 'movie' },
   ];
-  await writeFile(join(directory, 'metadata-cache.json'), JSON.stringify({ version: 1, entries: [[key, { at, data: { results, page: 1, total_pages: 1, total_results: 3 } }]] }));
+  await writeFile(join(directory, 'metadata-cache.json'), JSON.stringify({ version: 1, entries: [[key, { at, data: { results, page: 1, total_pages: 1, total_results: 3 } }], ['search-trending:v1', { at, data: { results: [] } }]] }));
   let calls = 0, service;
   try {
     service = createMetadataService({ directory, sources: sevenSources.slice(0, 1), getConfig: () => ({}), fetcher: async url => {
@@ -168,6 +169,33 @@ test('existing search caches are ranked immediately, reuse detail metadata, and 
     const again = await service.request('/search/multi', { query });
     assert.equal(again.results[0].name, 'VisionQuest'); assert.equal(calls, 2);
   } finally { await service?.flush(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('cold partial searches recover titles omitted by the provider using public trending and the local catalog', async () => {
+  let panels = 0;
+  const service = createMetadataService({ sources: sevenSources.slice(0, 1), now: () => Date.parse('2026-11-11T12:00:00Z'), getConfig: () => ({}), fallback: () => assert.fail('No credential is needed'), fetcher: async (url, options) => {
+    assert.equal(options.headers.authorization, undefined);
+    if (url === trendingURL) { panels++; return html('<div class="card"><a data-media-type="tv" href="/tv/213375"><h2>VisionQuest</h2></a><span class="release_date">October 13, 2026</span></div>'); }
+    const u = new URL(url), path = u.searchParams.get('path');
+    if (u.pathname === '/api/search') return response({ results: u.searchParams.get('q') === 'vision' ? [{ id: 482948, title: 'Vision', mediaType: 'movie', releaseDate: '2018-06-08', rating: 4.9 }] : [] });
+    if (path === '/movie/482948') return response({ id: 482948, title: 'Vision', popularity: .8266, vote_count: 34, vote_average: 4.9 });
+    if (path === '/tv/213375') return response({ id: 213375, name: 'VisionQuest', seasons: [], popularity: 221, vote_count: 328, vote_average: 8.5 });
+    assert.fail('Unexpected request: ' + url);
+  } });
+  for (const query of ['vision','visi','vision q','vision']) {
+    const result = await service.request('/search/multi', { query });
+    assert.equal(result.results[0].id, 213375); assert.equal(result.results[0].media_type, 'tv');
+    assert.equal(result.total_results, result.results.length);
+    assert.equal(result.results[0].seasons, undefined);
+  }
+  assert.equal(panels, 1, 'typing reuses the public trending snapshot');
+  const movies = await service.request('/search/movie', { query: 'vision' });
+  assert.deepEqual(movies.results.map(item => item.id), [482948]);
+  assert.deepEqual((await service.request('/search/multi', { query: 'vision', page: 2 })).results, [], 'supplementary titles must not repeat on later pages');
+  service.setSearchCatalog({ series: [{ id: 1396, name: 'Breaking Bad', popularity: 159, vote_count: 19091, vote_average: 8.9 }] });
+  assert.equal((await service.request('/search/multi', { query: 'break' })).results[0].id, 1396);
+  service.setSearchCatalog({});
+  assert.deepEqual((await service.request('/search/multi', { query: 'break' })).results, []);
 });
 
 test('TMDB is opt-in, only follows source failures, never receives or leaks another credential, and disabling takes effect immediately', async () => {

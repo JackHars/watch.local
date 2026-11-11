@@ -5,13 +5,14 @@ import { settingsStore, dataDirectory, problem } from './settings.mjs';
 import { requestTMDB } from './tmdb.mjs';
 import { fetchTrendingPanel, fetchPublicIMDb } from './tmdb-public.mjs';
 import { collectTopRated } from './top-rated.mjs';
-import { improveSearchResults } from './search.mjs';
+import { improveSearchResults, createSearchIndex, mergeSearchCandidates } from './search.mjs';
 
 // Public catalog endpoints used by the Vidrift/7Movies web player.
 // No embedded API key or direct TMDB request is needed for these sources.
 export const catalogSources = ['https://7movies.ac', 'https://7movies.ws'];
 const HOUR = 3600000, MAX_ENTRIES = 300, MAX_BYTES = 12 * 1024 * 1024;
 const TRENDING_KEY = 'tmdb-public-trending:v1';
+const SEARCH_TRENDING_KEY = 'search-trending:v1';
 // The provider's published genre taxonomy (shared IDs keep existing IPTV lists valid).
 const genres = {
   movie: [[28,'Action'],[12,'Adventure'],[16,'Animation'],[35,'Comedy'],[80,'Crime'],[99,'Documentary'],[18,'Drama'],[10751,'Family'],[14,'Fantasy'],[36,'History'],[27,'Horror'],[10402,'Music'],[9648,'Mystery'],[10749,'Romance'],[878,'Science Fiction'],[10770,'TV Movie'],[53,'Thriller'],[10752,'War'],[37,'Western']],
@@ -61,6 +62,7 @@ function validate(data, path, kind) {
 
 export function createMetadataService({ directory, fetcher = (...args) => fetch(...args), getConfig = () => settingsStore.config().metadata, fallback = requestTMDB, sources = catalogSources, now = Date.now, timeoutMs = 8000 } = {}) {
   const cache = new Map(), pending = new Map(), cooldown = new Map();
+  const searchCatalog = createSearchIndex();
   let initialization, saveTimer, writes = Promise.resolve();
   function trim() {
     let bytes = 0;
@@ -222,6 +224,43 @@ export function createMetadataService({ directory, fetcher = (...args) => fetch(
     const page = Math.max(1,Math.floor(Number(extra.page)||1)), size = 20;
     return structuredClone({results:data.results.slice((page-1)*size,page*size),page,total_pages:Math.ceil(data.results.length/size),total_results:data.results.length});
   }
+  async function searchTrending(signal) {
+    const saved = [cache.get(TRENDING_KEY), cache.get(SEARCH_TRENDING_KEY)].filter(Boolean).sort((a,b) => b.at-a.at)[0];
+    if (saved && now() - saved.at < HOUR / 4) return saved;
+    const run = async () => {
+      if (!(cooldown.get(SEARCH_TRENDING_KEY) > now())) {
+        try {
+          const bounded = AbortSignal.any([AbortSignal.timeout(600), ...(signal ? [signal] : [])]);
+          // Only the small public list here; enrich matching cards afterward.
+          const results = await fetchTrendingPanel({ fetcher, signal: bounded, timeoutMs: 600 });
+          remember(SEARCH_TRENDING_KEY, { results });
+          return cache.get(SEARCH_TRENDING_KEY);
+        } catch { signal?.throwIfAborted(); cooldown.set(SEARCH_TRENDING_KEY, now() + 60000); }
+      }
+      return saved && now() - saved.at < 7 * 24 * HOUR ? saved : null;
+    };
+    if (signal) return run();
+    if (!pending.has(SEARCH_TRENDING_KEY)) pending.set(SEARCH_TRENDING_KEY, run().finally(() => pending.delete(SEARCH_TRENDING_KEY)));
+    return pending.get(SEARCH_TRENDING_KEY);
+  }
+  function cachedSearchCandidates() {
+    const candidates = [];
+    for (const [key, entry] of cache) {
+      if (now() - entry.at > 7 * 24 * HOUR) continue;
+      let path = '';
+      try { path = JSON.parse(key.slice(key.indexOf('[')))[0]; } catch { /* Public lists already include media_type. */ }
+      const type = /^\/(?:curated\/|discover\/)?(movie|tv)\//.exec(path)?.[1];
+      for (const item of entry.data.results || [entry.data]) {
+        if (validID(item.id) && (item.title || item.name) && ['movie','tv'].includes(item.media_type || type)) {
+          const candidate = normalizeItem(item, item.media_type || type);
+          // Public trending cards lack ratings; that must not erase a known one.
+          if (item.vote_average == null && item.rating == null) delete candidate.vote_average;
+          candidates.push(candidate);
+        }
+      }
+    }
+    return candidates;
+  }
   async function request(path, extra = {}, signal) {
     const kind = routeKind(path);
     await initialize(); signal?.throwIfAborted();
@@ -232,7 +271,11 @@ export function createMetadataService({ directory, fetcher = (...args) => fetch(
     const finish = async data => {
       const copy = structuredClone(data);
       if (kind === 'search') {
-        const trending = cache.get(TRENDING_KEY);
+        const firstPage = Number(extra.page || 1) === 1, type = path.split('/')[2];
+        const trending = firstPage ? await searchTrending(signal) : null;
+        if (firstPage) copy.results = mergeSearchCandidates(copy.results, [
+          ...searchCatalog.matching(extra.query, type), ...cachedSearchCandidates(), ...(trending?.data.results || []),
+        ], extra.query, type);
         copy.results = await improveSearchResults(copy.results, extra.query, {
           now: now(), signal,
           trending: trending && now() - trending.at < HOUR ? trending.data.results : [],
@@ -288,7 +331,7 @@ export function createMetadataService({ directory, fetcher = (...args) => fetch(
     if (!pending.has(pendingKey)) pending.set(pendingKey, run().finally(() => pending.delete(pendingKey)));
     return finish(await pending.get(pendingKey));
   }
-  return { request, flush };
+  return { request, flush, setSearchCatalog: catalog => searchCatalog.replace(catalog) };
 }
 
 export const metadataService = createMetadataService({ directory: dataDirectory });

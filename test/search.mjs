@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rankSearchResults, improveSearchResults } from '../api/search.mjs';
+import { rankSearchResults, improveSearchResults, createSearchIndex, mergeSearchCandidates } from '../api/search.mjs';
 
 const now = Date.parse('2026-11-11T12:00:00Z');
 const movie = (id, title, extra = {}) => ({ id, title, media_type: 'movie', ...extra });
@@ -13,20 +13,64 @@ const vision = [
   movie(4, 'VisionQuest Official Podcast', { popularity: 99999, vote_count: 999999, release_date: '2026-11-10' }),
 ];
 
-test('spacing is equivalent; popularity separates exact matches without promoting a popular partial match', () => {
+test('spacing is equivalent and a popular exact show remains first even against a very popular related title', () => {
   for (const query of ['vision quest', 'VisionQuest', '  VISION   QUEST  ', 'vision-quest']) {
     const result = rankSearchResults(vision, query, { now });
-    assert.deepEqual(ids(result), ['tv:3', 'movie:1', 'movie:2', 'movie:4']);
+    assert.equal(ids(result)[0], 'tv:3');
+    assert.ok(ids(result).indexOf('movie:1') < ids(result).indexOf('movie:2'));
   }
   assert.equal(vision[0].id, 1, 'ranking must not mutate the cached provider list');
 });
 
-test('accented, original, and punctuated titles match naturally; franchise extras remain behind the title', () => {
-  const items = [movie(1, 'Amélie: Behind the Scenes', { popularity: 1000 }), movie(2, 'Amélie'), movie(3, 'Seven Samurai', { original_title: '七人の侍' })];
+test('accented, original, and punctuated titles match naturally', () => {
+  const items = [movie(1, 'Amélie: Behind the Scenes', { popularity: 2 }), movie(2, 'Amélie', { popularity: 30, vote_count: 10000 }), movie(3, 'Seven Samurai', { original_title: '七人の侍' })];
   assert.equal(rankSearchResults(items, 'amelie')[0].id, 2);
   assert.equal(rankSearchResults(items, '七人の侍')[0].id, 3);
   assert.equal(rankSearchResults([movie(1, 'Spider-Man: Homecoming'), movie(2, 'Spider-Man')], 'spider man')[0].id, 2);
   assert.equal(rankSearchResults([movie(1, 'Office Party'), show(2, 'The Office', { popularity: 70 })], 'office')[0].id, 2);
+});
+
+test('short queries blend title fit with audience interest instead of promoting obscure exact titles', () => {
+  const items = [
+    movie(1, 'Vision', { popularity: .8266, vote_count: 34, vote_average: 4.9, release_date: '2018-06-08' }),
+    movie(2, 'Vision', { popularity: .67, vote_count: 3, vote_average: 8.3, release_date: '1993-01-01' }),
+    show(3, 'VisionQuest', { popularity: 221, vote_count: 328, vote_average: 8.5, first_air_date: '2026-10-13' }),
+    movie(4, 'Vision', { popularity: .1, vote_count: 1, vote_average: 10 }),
+    movie(5, 'Unrelated blockbuster', { popularity: 999999, vote_count: 999999, vote_average: 9.8 }),
+  ];
+  for (const query of ['vision', 'visi', 'vision q', 'vision quest', 'visionquest']) assert.equal(rankSearchResults(items, query, { now })[0].id, 3);
+  assert.equal(rankSearchResults(items, 'vision 2018', { now })[0].id, 1, 'an explicit release year still finds the older movie');
+  const breaking = [movie(1, 'Break', { popularity: 1.4, vote_count: 200 }), show(2, 'Breaking Bad', { popularity: 159, vote_count: 19091, vote_average: 8.9 })];
+  assert.equal(rankSearchResults(breaking, 'break', { now })[0].id, 2);
+  assert.equal(rankSearchResults([movie(1, 'Vision'), show(2, 'VisionQuest')], 'vision')[0].id, 1, 'without audience evidence, keep the closer title first');
+});
+
+test('the local title index supplies missing prefix matches and keeps movie/TV identities distinct', () => {
+  const index = createSearchIndex();
+  index.replace({ movies: [movie(1, 'Vision'), movie(2, 'Adult vision', { adult: true })], series: [show(1, 'VisionQuest', { popularity: 221, vote_count: 328, seasons: [{ season_number: 1 }] }), show(2, 'Breaking Bad')] });
+  assert.deepEqual(ids(index.matching('vision')), ['tv:1','movie:1']);
+  assert.deepEqual(ids(index.matching('vision', 'movie')), ['movie:1']);
+  assert.deepEqual(ids(index.matching('break')), ['tv:2']);
+  const found = mergeSearchCandidates([movie(1, 'Vision')], [...index.matching('vision'), movie(99, 'Unrelated')], 'vision');
+  assert.equal(found.length, 2); assert.equal(found.find(item => item.media_type === 'tv').seasons, undefined);
+  index.replace({ series: [show(3, 'Vision 2')] });
+  assert.deepEqual(ids(index.matching('vision')), ['tv:3'], 'catalog refreshes replace the previous index');
+});
+
+test('detail enrichment includes a trending prefix match even behind many exact-title cards', async () => {
+  const series = show(100, 'VisionQuest'), items = [...Array.from({ length: 20 }, (_, id) => movie(id + 1, 'Vision')), series];
+  const called = [];
+  const results = await improveSearchResults(items, 'vision', { now, trending: [series], getDetails: async (type, id) => {
+    called.push(id); return id === 100 ? { popularity: 221, vote_count: 328, vote_average: 8.5 } : { popularity: .8, vote_count: 34, vote_average: 4.9 };
+  } });
+  assert.equal(results[0].id, 100); assert.equal(called[0], 100); assert.equal(called.length, 12);
+});
+
+test('broad prefixes prioritize popular library titles while full queries can still find obscure titles', () => {
+  const index = createSearchIndex();
+  index.replace({ series: Array.from({ length: 3000 }, (_, id) => show(id + 1, 'The Test ' + id, { popularity: id })) });
+  assert.equal(index.matching('th')[0].id, 3000);
+  assert.equal(index.matching('the test 0')[0].id, 1);
 });
 
 test('release years disambiguate remakes without treating title numbers as release dates', () => {

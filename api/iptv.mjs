@@ -8,6 +8,7 @@ import { settingsStore, dataDirectory as settingsDirectory, activeUser } from '.
 import { requireSession } from './sessions.mjs';
 import { getCatalogData, resolveStream, fetchUpstream } from './platform.mjs';
 import { collectCatalog, catalogPageLimit, MAX_CATALOG_PAGES } from './catalog.mjs';
+import { metadataService } from './metadata.mjs';
 import { createSubtitleService, attachSubtitles, subtitlePlaylist, subtitleSegment } from './subtitles.mjs';
 import { highestQualityPlaylist } from './hls-quality.mjs';
 import { createSportsProvider } from './sports.mjs';
@@ -61,6 +62,7 @@ export function initializeIPTV(config = {}) {
     const sync = () => { settings = settingsStore.get(); options = { catalogPages: settings.config.catalog.pages, refreshHours: settings.config.catalog.refreshHours }; };
     sync(); settingsStore.events.on('change', sync);
     catalog = await readJSON('catalog.json', catalog);
+    metadataService.setSearchCatalog(catalog);
     episodeIndex = await readJSON('episodes.json', {});
     sports = createSportsProvider({ directory: config.sportsDirectory || fileURLToPath(dataDirectory), source: config.sportsSource });
     await sports.initialize();
@@ -99,6 +101,7 @@ export async function refreshCatalog({ initial = false } = {}) {
       }
     }
     catalog = next;
+    metadataService.setSearchCatalog(catalog);
     await saveJSON('catalog.json', catalog);
     console.info(`IPTV catalog updated: ${catalog.movies.length} movies, ${catalog.series.length} series, ${catalog.errors.length} errors.`);
     return catalog;
@@ -436,7 +439,7 @@ async function handleIPTVRequest(req, res) {
       const item = await getCatalogData(`/${type}/${id}`);
       await settingsStore.mutate(next => { if (!next.pinned.some(pin => pin.id === id && pin.type === type)) next.pinned.push({ id, type, title: item.title || item.name }); });
       const key = type === 'movie' ? 'movies' : 'series';
-      if (!catalog[key].some(existing => existing.id === id)) catalog[key].push(item);
+      if (!catalog[key].some(existing => existing.id === id)) { catalog[key].push(item); metadataService.setSearchCatalog(catalog); }
       await saveJSON('catalog.json', catalog);
       reply(req, res, 200, { added: true, title: item.title || item.name }); return true;
     }
