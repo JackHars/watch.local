@@ -11,6 +11,7 @@ import { sportsArtworkOrigins } from './sports.mjs';
 
 const activity = [], started = Date.now();
 const updates = createUpdateControl(join(dataDirectory, 'updates'));
+const nativeStreams = new Map();
 export function recordActivity(event) { if (event.target === '/ui/activity') return; activity.push({ ...event, at: new Date().toISOString() }); if (activity.length > 200) activity.shift(); }
 const json = (res, status, data) => { if (res.destroyed) return; res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
 async function body(req) {
@@ -31,6 +32,7 @@ const files = new Map([
   ['/', ['../public/index.html','text/html; charset=utf-8']],
   ['/navigation.mjs', ['../public/navigation.mjs','text/javascript']],
   ['/watch-progress.mjs', ['../public/watch-progress.mjs','text/javascript']],
+  ['/mobile-player.mjs', ['../public/mobile-player.mjs','text/javascript']],
   ['/profiles.mjs', ['../public/profiles.mjs','text/javascript']],
   ['/preferences.mjs', ['../public/preferences.mjs','text/javascript']],
   ['/home.mjs', ['../public/home.mjs','text/javascript']],
@@ -95,6 +97,29 @@ export async function handleWeb(req, res) {
       json(res,200,await getCatalogData(path === '/ui/episodes' ? `/tv/${id}/season/${season}` : `/${type}/${id}`, path === '/ui/title' ? {append_to_response:'credits'} : {})); return true;
     }
     if (path === '/ui/live' && req.method === 'GET') { json(res,200,{items:await browserSports()}); return true; }
+    // A media URL can be assigned and played during the original tap. Resolving
+    // inside this request avoids losing iOS user activation to a JSON fetch.
+    if (path === '/ui/playback.m3u8' && ['GET','HEAD'].includes(req.method)) {
+      sameOrigin(req);
+      const input = Object.fromEntries(url.searchParams);
+      input.fresh = input.fresh === '1';
+      await watchProgressStore.profile(user.id, input.profileId);
+      if (input.requestId && !/^[a-f0-9]{32}$/.test(input.requestId)) throw problem(400, 'Invalid playback request.');
+      // Native players may probe the source repeatedly. Reuse the resolved URL
+      // for this tap, including fresh-source retries, without caching across users.
+      const key = input.requestId ? JSON.stringify([user.id,user.version,requestOrigin(req),url.search]) : null;
+      for (const [id, entry] of nativeStreams) if (entry.expires < Date.now()) nativeStreams.delete(id);
+      let stream = key && nativeStreams.get(key)?.stream;
+      if (!stream) {
+        stream = await browserPlay(req, res, user, input);
+        if (key) {
+          while (nativeStreams.size >= 128) nativeStreams.delete(nativeStreams.keys().next().value);
+          nativeStreams.set(key, { stream, expires: Date.now() + 300000 });
+        }
+      }
+      if (!res.destroyed) { res.writeHead(302, { Location: stream.url, 'Cache-Control': 'no-store' }); res.end(); }
+      return true;
+    }
     if (path === '/ui/play' && req.method === 'POST') { const input=await body(req);await watchProgressStore.profile(user.id,input.profileId);json(res,200,await browserPlay(req,res,user,input));return true; }
     if (path === '/ui/connections' && req.method === 'GET') {
       const target = url.searchParams.get('user') || user.id;

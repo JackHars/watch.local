@@ -66,3 +66,34 @@ test('saves a heartbeat every ten seconds without writing on every timeupdate', 
     assert.equal(f.calls.at(-1).payload.position, 21);
   } finally { f.restore(); }
 });
+
+test('mobile playback can start before progress arrives without overwriting its saved position', async () => {
+  const f = fixture(); let resolveProgress;
+  try {
+    const progress = new Promise(resolve => { resolveProgress = resolve; });
+    const tracker = trackPlayback(f.video, { item, progress });
+    Object.assign(f.video, { duration: 2700, readyState: 1, currentTime: 2 });
+    f.event(f.video, 'playing'); f.event(f.video, 'pause'); assert.equal(f.calls.length, 0);
+    resolveProgress({ position: 600, completed: false }); await Promise.resolve();
+    assert.equal(f.video.currentTime, 600); assert.equal(f.calls[0].payload.position, 600);
+    f.video.currentTime = 620; await tracker.stop();
+    assert.equal(f.calls.at(-1).payload.position, 620);
+  } finally { f.restore(); }
+});
+
+test('closing or starting over cancels a pending mobile resume, and failed lookups do not erase history', async () => {
+  const f = fixture(); let resolveProgress, rejectProgress; const errors = [];
+  try {
+    Object.assign(f.video, { duration: 2700, readyState: 1 });
+    let tracker = trackPlayback(f.video, { item, progress: new Promise(resolve => { resolveProgress = resolve; }) });
+    f.event(f.video, 'playing'); await tracker.stop(); resolveProgress({ position: 600 }); await Promise.resolve();
+    assert.equal(f.calls.length, 0); assert.equal(f.video.currentTime, 0);
+    tracker = trackPlayback(f.video, { item, progress: new Promise(resolve => { resolveProgress = resolve; }) });
+    tracker.restart(); resolveProgress({ position: 600 }); await Promise.resolve();
+    assert.equal(f.video.currentTime, 0); await tracker.stop();
+    const count = f.calls.length;
+    tracker = trackPlayback(f.video, { item, progress: new Promise((_, reject) => { rejectProgress = reject; }), onError: message => errors.push(message) });
+    f.event(f.video, 'playing'); rejectProgress(Error('offline')); await Promise.resolve();
+    f.event(f.video, 'pause'); await tracker.stop(); assert.equal(f.calls.length, count); assert.equal(errors.length, 1);
+  } finally { f.restore(); }
+});

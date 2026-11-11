@@ -1,5 +1,6 @@
 import { createNavigation } from './navigation.mjs';
 import { trackPlayback } from './watch-progress.mjs';
+import { mobilePlaybackDevice, mobilePlayer } from './mobile-player.mjs';
 import { profileAvatar, profilePicker, openProfileDialog, rememberedProfileId, rememberProfile } from './profiles.mjs';
 import { homeCategories, featuredItems, mountHeroCarousel } from './home.mjs';
 import { livePage, mountLivePage } from './live.mjs';
@@ -201,12 +202,48 @@ function bindProviders(){const list=$('#provider-list');if(!list)return;list.onc
 function userDialog(id){const prior=state.settings.users.find(u=>u.id===id),owner=id===state.settings.ownerId;const dialog=$('#dialog');dialog.innerHTML=`<header><h2>${prior?'Edit user':'Add user'}</h2><button class="icon-btn" data-action="close-dialog" aria-label="Close">${icon('close')}</button></header><form id="user-form">${field('Username','username',prior?.username||'',{required:true})}<label class="field"><span>${prior?'New password':'Password'}</span><span class="field-row"><input name="password" id="user-password" type="password" autocomplete="new-password" ${prior?'':'required'} minlength="8" maxlength="128"><button class="icon-btn" type="button" data-action="reveal" data-target="user-password" aria-label="Show password">${icon('eye')}</button></span><small>${prior?'Leave blank to keep the existing password.':'Use 8–128 characters without spaces.'}</small></label><div class="form-grid">${selectField('Role','role',prior?.role||'viewer',[['viewer','Viewer'],['admin','Administrator']])}${field('Expires on (optional)','expiresAt',prior?.expiresAt?.slice(0,10)||'',{type:'date'})}</div><div class="setting-row"><strong>Account enabled</strong>${toggle('Account enabled',prior?.enabled??true,'name="enabled"')}</div>${owner?'<p class="muted">The owner must remain an active administrator.</p>':''}<p class="error" id="user-error" role="alert"></p><div class="actions"><button class="btn ghost" type="button" data-action="close-dialog">Cancel</button><button class="btn blue" type="submit">${prior?'Save user':'Create user'}</button></div></form>`;if(owner){$('[name=role]',dialog).value='admin';$('[name=role]',dialog).disabled=true;$('[name=expiresAt]',dialog).disabled=true;$('[name=enabled]',dialog).disabled=true;}dialog.showModal();$('#user-form').onsubmit=async e=>{e.preventDefault();const form=e.target,values=Object.fromEntries(new FormData(form));values.enabled=owner||$('[name=enabled]',form).checked;values.role=owner?'admin':values.role;values.expiresAt=values.expiresAt?new Date(values.expiresAt+'T23:59:59').toISOString():null;const button=$('[type=submit]',form);setBusy(button,true);try{const d=await api('users'+(id?'/'+id:''),{method:id?'PUT':'POST',body:values});if(d.user.id===state.user.id)state.user=d.user;dialog.close();toast(prior?'User updated':'User created');route();}catch(error){$('#user-error').textContent=error.message;setBusy(button,false);}};}
 function deleteDialog(id){const user=state.settings.users.find(u=>u.id===id),dialog=$('#dialog');dialog.innerHTML=`<header><h2>Delete ${esc(user.username)}?</h2></header><p class="dialog-copy">This account will lose access to the web player and IPTV service. Its active sessions and media links will stop working.</p><p class="error" id="delete-error"></p><div class="actions"><button class="btn ghost" data-action="close-dialog">Cancel</button><button class="btn danger" id="confirm-delete">Delete user</button></div>`;dialog.showModal();$('#confirm-delete').onclick=async()=>{try{await api('users/'+id,{method:'DELETE'});dialog.close();toast('User deleted');route();}catch(e){$('#delete-error').textContent=e.message;}};}
 async function copyValue(id){const input=document.getElementById(id);try{if(navigator.clipboard&&isSecureContext)await navigator.clipboard.writeText(input.value);else{const area=document.createElement('textarea');area.value=input.value;area.style.position='fixed';area.style.opacity='0';document.body.append(area);area.select();const ok=document.execCommand('copy');area.remove();if(!ok)throw Error();}toast('Copied to clipboard');}catch{toast('Could not copy. Reveal the field and copy it manually.');}}
-let hls,playController,lastPlayback,playbackProgress;
-function closePlayer(refresh=true){const saved=playbackProgress?.stop()||Promise.resolve();playbackProgress=null;playController?.abort();hls?.destroy();hls=null;const video=$('video',$('#player'));if(video){video.pause();video.removeAttribute('src');video.load();}$('#player').close();$('#player').innerHTML='';if(refresh)saved.then(refreshContinueWatching);return saved;}
+let hls,playController,lastPlayback,playbackProgress,mobileSession;
+function closePlayer(refresh=true){const saved=playbackProgress?.stop()||Promise.resolve();playbackProgress=null;mobileSession?.stop();mobileSession=null;playController?.abort();hls?.destroy();hls=null;const video=$('video',$('#player'));if(video){video.pause();video.removeAttribute('src');video.load();}$('#player').close();$('#player').innerHTML='';if(refresh)saved.then(refreshContinueWatching);return saved;}
+function attachHls(video,url,onReady,fail){
+  const engine=hls=new Hls({maxBufferLength:30,manifestLoadingTimeOut:180000});
+  engine.loadSource(url);engine.attachMedia(video);
+  engine.on(Hls.Events.MANIFEST_PARSED,onReady);
+  engine.on(Hls.Events.ERROR,(_,event)=>{if(event.fatal)fail('The stream stopped. Try again to request a fresh source.');});
+  engine.on(Hls.Events.AUDIO_TRACKS_UPDATED,()=>{const select=$('#audio-track');select.hidden=engine.audioTracks.length<2;select.innerHTML=engine.audioTracks.map((t,i)=>`<option value="${i}">${esc(t.name||t.lang||'Audio '+(i+1))}</option>`).join('');select.onchange=()=>engine.audioTrack=Number(select.value);});
+  engine.on(Hls.Events.SUBTITLE_TRACKS_UPDATED,()=>{const select=$('#subtitle-track');select.hidden=!engine.subtitleTracks.length;select.innerHTML='<option value="-1">Subtitles off</option>'+engine.subtitleTracks.map((t,i)=>`<option value="${i}">${esc(t.name||t.lang||'Subtitle '+(i+1))}</option>`).join('');select.onchange=()=>engine.subtitleTrack=Number(select.value);});
+}
+function playOnMobile(data,identity,player,saved,controller,fresh){
+  const vod=['movie','tv'].includes(data.type),query=new URLSearchParams(Object.entries(identity).filter(([,value])=>value!==null));
+  $('.player-loading',player).outerHTML=`<video controls preload="auto" aria-label="Video player"></video><div class="player-tools"><span class="player-status" role="status">Opening fullscreen player…</span><select id="audio-track" aria-label="Audio track" hidden></select><select id="subtitle-track" aria-label="Subtitles" hidden></select><button class="btn primary small" data-action="open-fullscreen">${icon('play')}Open fullscreen</button>${vod?'<button class="btn ghost small" data-action="restart-play">Start over</button>':''}<button class="btn ghost small" data-action="retry-play">Try again</button></div>`;
+  const video=$('video',player),status=$('.player-status',player);
+  const fail=message=>{if(controller.signal.aborted)return;status.textContent=message;status.classList.add('error');mobileSession?.stop();};
+  if(vod){
+    const item={...identity,title:data.title||'Now playing',poster_path:data.poster_path,backdrop_path:data.backdrop_path};
+    const progress=saved.then(()=>api('progress?'+query,{signal:controller.signal})).then(history=>{
+      if(history.progress)Object.assign(item,{title:history.progress.title,poster_path:history.progress.poster_path,backdrop_path:history.progress.backdrop_path});
+      return history.progress;
+    });
+    playbackProgress=trackPlayback(video,{item,progress,onError:toast});
+    api(`title?type=${data.type}&id=${data.id}`,{signal:controller.signal}).then(metadata=>{if(!controller.signal.aborted)Object.assign(item,{title:title(metadata),poster_path:metadata.poster_path,backdrop_path:metadata.backdrop_path});}).catch(()=>{});
+  }
+  mobileSession=mobilePlayer(video,{onExit:()=>{if(!controller.signal.aborted)closePlayer();},onBlocked:()=>{status.textContent='Tap Open fullscreen to begin.';}});
+  video.addEventListener('playing',()=>{status.classList.remove('error');status.textContent='Playing';});
+  video.addEventListener('error',()=>fail('This stream could not be played. Try again to find a fresh source.'));
+  if(fresh)query.set('fresh','1');
+  query.set('requestId',[...crypto.getRandomValues(new Uint8Array(16))].map(value=>value.toString(16).padStart(2,'0')).join(''));
+  const source='/ui/playback.m3u8?'+query;
+  // Do not await progress or stream resolution here: playback must start in this tap.
+  if(video.canPlayType('application/vnd.apple.mpegurl'))mobileSession.start(source);
+  else if(window.Hls?.isSupported()){
+    attachHls(video,source,()=>video.play().catch(()=>{if(!controller.signal.aborted)status.textContent='Tap Open fullscreen to begin.';}),fail);
+    mobileSession.start();
+  }else fail('This browser does not support HLS playback.');
+}
 async function play(data,fresh=false){if(!state.profile)return profilesPage();const profileId=state.profile.id;lastPlayback={...data};const saved=closePlayer(false);const player=$('#player');player.innerHTML=`<header><h2>${esc(data.title||'Now playing')}</h2><button class="icon-btn" data-action="close-player" aria-label="Close player">${icon('close')}</button></header><div class="player-loading"><div class="spinner"></div><p>Finding the best available stream…</p><small>Trying your providers in order.</small></div>`;player.showModal();const controller=new AbortController();playController=controller;
+  const identity={profileId,type:data.type,id:Number(data.id),season:data.season===undefined?null:Number(data.season),episode:data.episode===undefined?null:Number(data.episode)};
+  if(mobilePlaybackDevice())return playOnMobile(data,identity,player,saved,controller,fresh);
   try{
     await saved;if(controller.signal.aborted)return;
-    const identity={profileId,type:data.type,id:Number(data.id),season:data.season===undefined?null:Number(data.season),episode:data.episode===undefined?null:Number(data.episode)};
     const vod=['movie','tv'].includes(data.type),query=new URLSearchParams(Object.entries(identity).filter(([,value])=>value!==null));
     const details=vod?api(`title?type=${data.type}&id=${data.id}`,{signal:controller.signal}).catch(()=>null):Promise.resolve(null);
     const [out,history]=await Promise.all([
@@ -219,7 +256,7 @@ async function play(data,fresh=false){if(!state.profile)return profilesPage();co
     else if(vod)toast('Your saved place could not be loaded. Try again to resume.');
     video.addEventListener('playing',()=>{status.classList.remove('error');status.textContent=`Playing from ${names[out.provider]||out.provider}`;});video.addEventListener('error',()=>fail('This browser could not play the video. Try again or use your IPTV app.'));
     if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=out.url;video.play().catch(()=>{status.textContent='Press play to begin.';});}
-    else if(window.Hls?.isSupported()){hls=new Hls({maxBufferLength:30,manifestLoadingTimeOut:180000});hls.loadSource(out.url);hls.attachMedia(video);hls.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{status.textContent='Press play to begin.';}));hls.on(Hls.Events.ERROR,(_,event)=>{if(event.fatal)fail('The stream stopped. Try again to request a fresh source.');});hls.on(Hls.Events.AUDIO_TRACKS_UPDATED,()=>{const select=$('#audio-track');select.hidden=hls.audioTracks.length<2;select.innerHTML=hls.audioTracks.map((t,i)=>`<option value="${i}">${esc(t.name||t.lang||'Audio '+(i+1))}</option>`).join('');select.onchange=()=>hls.audioTrack=Number(select.value);});hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED,()=>{const select=$('#subtitle-track');select.hidden=!hls.subtitleTracks.length;select.innerHTML='<option value="-1">Subtitles off</option>'+hls.subtitleTracks.map((t,i)=>`<option value="${i}">${esc(t.name||t.lang||'Subtitle '+(i+1))}</option>`).join('');select.onchange=()=>hls.subtitleTrack=Number(select.value);});}
+    else if(window.Hls?.isSupported())attachHls(video,out.url,()=>video.play().catch(()=>{status.textContent='Press play to begin.';}),fail);
     else fail('HLS playback is not supported in this browser. Use the IPTV connection details in Settings.');
   }catch(e){if(controller.signal.aborted||!$('.player-loading',player))return;$('.player-loading',player).innerHTML=`${icon('info')}<h2>Playback unavailable</h2><p>${esc(e.message)}</p><button class="btn" data-action="retry-play">Try again</button>`;}
 }
@@ -235,6 +272,7 @@ document.addEventListener('click',async e=>{if(e.target.closest('.skip')){e.prev
     if(action==='episodes'){if(location.hash.startsWith('#title'))$('#episodes')?.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});else location.hash=`title/tv/${button.dataset.id}`;}
     if(action==='play')await play(button.dataset);
     if(action==='retry-play')await play(lastPlayback,true);
+    if(action==='open-fullscreen')mobileSession?.start();
     if(action==='restart-play'){const video=$('video',$('#player'));if(playbackProgress)playbackProgress.restart();else if(video)video.currentTime=0;video?.play().catch(()=>{});}
     if(action==='close-player')closePlayer();
     if(action==='save')saveTitle();

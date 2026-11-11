@@ -9,7 +9,7 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
  const directory=await mkdtemp(join(tmpdir(),'watchlocal-web-'));process.env.WATCHLOCAL_DATA_DIR=directory;
  const { settingsStore }=await import('../api/settings.mjs');const { createServer }=await import('../server.mjs');
  const { initializeIPTV, setIPTVCredentials }=await import('../api/iptv.mjs');
- const original=globalThis.fetch;let server;
+ const original=globalThis.fetch;let server,zstreamCalls=0;
  const trendingPanel=await readFile(new URL('./fixtures/trending-panel.html',import.meta.url),'utf8');
  try{
   await settingsStore.initialize();await settingsStore.configure({server:{requireLanLogin:true}});const owner=settingsStore.user(settingsStore.get().ownerId);
@@ -17,7 +17,7 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   await initializeIPTV();const version=settingsStore.user(owner.id).version;await setIPTVCredentials('owner','password123');assert.equal(settingsStore.user(owner.id).version,version);server=createServer();server.listen(0,'127.0.0.1');await once(server,'listening');const base=`http://127.0.0.1:${server.address().port}`;
   globalThis.fetch=async (url,options)=>{
    if(new URL(url).hostname==='127.0.0.1')return original(url,options);
-   if(new URL(url).hostname==='api.zstream.mov')return new Response(JSON.stringify({streams:[{type:'hls',playlist:'https://fixture.test/master'}]}));
+   if(new URL(url).hostname==='api.zstream.mov'){zstreamCalls++;return new Response(JSON.stringify({streams:[{type:'hls',playlist:'https://fixture.test/master'}]}));}
    if(url==='https://fixture.test/master')return new Response('#EXTM3U\n#EXTINF:6,\nseg.ts\n');
    if(url==='https://fixture.test/seg.ts')return new Response(Buffer.alloc(188*4,0x47));
    if(new URL(url).hostname==='api.themoviedb.org' && new URL(url).pathname==='/3/configuration'){if(options.headers.authorization==='Bearer invalid-fixture-credential')return new Response('{}',{status:401});return new Response(JSON.stringify({images:{secure_base_url:'https://image.tmdb.org/t/p/'}}));}
@@ -43,9 +43,11 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   const home=await request('/');assert.equal(home.status,200);assert.match(home.headers.get('content-security-policy'),/frame-ancestors 'none'/);assert.match(await home.text(),/app.js/);
   assert.equal((await request('/vendor/hls.js')).status,200);assert.equal((await request('/ui/settings')).status,401);
   assert.equal((await request('/watch-progress.mjs')).status,200);
+  assert.equal((await request('/mobile-player.mjs')).status,200);
   assert.equal((await request('/profiles.mjs')).status,200);
   assert.equal((await request('/home.mjs')).status,200);
   assert.equal((await request('/ui/profiles')).status,401);
+  assert.equal((await request('/ui/playback.m3u8?type=movie&id=550')).status,401);
   assert.equal((await request('/ui/updates')).status,401);
   assert.equal((await request('/ui/updates/check',{method:'POST',body:{}})).status,401);
   assert.equal((await request('/ui/profiles',{method:'POST',body:{name:'Guest',color:'#527de0'}})).status,401);
@@ -117,6 +119,18 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/ui/play',{cookie,method:'POST',body:{type:'movie',id:550}})).status,400);
   assert.equal((await request('/ui/play',{cookie,method:'POST',body:{type:'movie',id:550,profileId:ownerProfile.id}})).status,404);
   r=await request('/ui/play',{cookie,method:'POST',body:{type:'movie',id:550,profileId:viewerProfile.id}});assert.equal(r.status,200);const play=await r.json();assert.equal(play.provider,'zstream');assert.equal((await fetch(play.url)).status,200);
+  const nativePath='/ui/playback.m3u8?type=movie&id=550&profileId='+viewerProfile.id;
+  r=await original(base+nativePath,{headers:{cookie},redirect:'manual'});assert.equal(r.status,302);assert.equal(r.headers.get('cache-control'),'no-store');assert.ok(r.headers.get('location').startsWith(base+'/iptv/media/'));
+  assert.match(await request(nativePath,{cookie}).then(r=>r.text()),/^#EXTM3U/);
+  r=await original(base+nativePath,{method:'HEAD',headers:{cookie},redirect:'manual'});assert.equal(r.status,302);assert.equal(await r.text(),'');
+  assert.equal((await request(nativePath,{cookie,origin:'https://evil.test'})).status,403);
+  assert.equal((await request('/ui/playback.m3u8?type=movie&id=550&profileId='+ownerProfile.id,{cookie})).status,404);
+  assert.equal((await request('/ui/playback.m3u8?type=invalid&id=550&profileId='+viewerProfile.id,{cookie})).status,400);
+  assert.equal((await request(nativePath+'&requestId=invalid',{cookie})).status,400);
+  const freshNative=nativePath+'&fresh=1&requestId='+'1'.repeat(32);
+  r=await original(base+freshNative,{headers:{cookie},redirect:'manual'});assert.equal(r.status,302);const nativeResolutions=zstreamCalls;
+  r=await original(base+freshNative,{method:'HEAD',headers:{cookie},redirect:'manual'});assert.equal(r.status,302);assert.equal(zstreamCalls,nativeResolutions,'Native range probes must reuse the fresh source from this tap');
+  r=await original(base+nativePath+'&fresh=1&requestId='+'2'.repeat(32),{headers:{cookie},redirect:'manual'});assert.equal(r.status,302);assert.ok(zstreamCalls>nativeResolutions,'A new retry must request a fresh source');
   await request('/ui/settings',{cookie:admin,method:'PUT',body:{server:{publicUrl:'http://livingroom.local:8091'}}});
   const relay=await fetch(play.url);assert.equal(relay.status,200);const manifest=await relay.text();assert.ok(manifest.includes(base+'/iptv/media/'));assert.ok(!manifest.includes('livingroom.local'));
   r=await request('/ui/connections',{cookie});assert.equal((await r.json()).server,'http://livingroom.local:8091');

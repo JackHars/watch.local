@@ -151,6 +151,12 @@ top bar, which hides on downward scroll and returns when you scroll up. The layo
 indicator. Add the page to your Home Screen for a standalone window on supported
 browsers; playback and browsing still need a connection to the server.
 
+On phones and tablets, tapping a movie, episode or live event starts the browser's
+fullscreen video player directly. On iPhone this uses the native player, including
+its audio, subtitle and AirPlay controls. Closing fullscreen returns to the library
+and saves your place. If the browser blocks playback, **Open fullscreen** provides
+a direct retry. Desktop playback keeps the existing in-page player.
+
 ### Automatic updates
 
 **Settings → Updates** can automatically install new commits from the

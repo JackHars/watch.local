@@ -3,7 +3,8 @@ export function trackPlayback(video, { item, progress, onError = () => {} }) {
   if (!['movie', 'tv'].includes(item.type)) return null;
   const playbackId = [...crypto.getRandomValues(new Uint8Array(16))].map(value => value.toString(16).padStart(2, '0')).join('');
   let sequence = 0, started = false, stopped = false, lastAttempt = -Infinity, lastSnapshot = '', warned = false;
-  let resumeAt = progress && !progress.completed ? progress.position : 0;
+  let loadingProgress = typeof progress?.then === 'function', progressFailed = false;
+  let resumeAt = !loadingProgress && progress && !progress.completed ? progress.position : 0;
   const requests = new Set(), listeners = [];
   const listen = (target, name, callback) => {
     target.addEventListener(name, callback);
@@ -18,7 +19,7 @@ export function trackPlayback(video, { item, progress, onError = () => {} }) {
     } catch { /* Native HLS may not expose its seekable timeline yet. */ }
   }
   function save(force = false) {
-    if (stopped || !started || resumeAt || (!force && video.seeking) || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    if (stopped || loadingProgress || progressFailed || !started || resumeAt || (!force && video.seeking) || !Number.isFinite(video.duration) || video.duration <= 0) return;
     const position = Math.round(video.currentTime * 1000) / 1000, duration = Math.round(video.duration * 1000) / 1000;
     if (!Number.isFinite(position) || position < 0) return;
     const snapshot = `${position}:${duration}:${video.ended}`;
@@ -43,8 +44,19 @@ export function trackPlayback(video, { item, progress, onError = () => {} }) {
   for (const event of ['pause', 'seeked', 'ended']) listen(video, event, () => save(true));
   listen(document, 'visibilitychange', () => { if (document.visibilityState === 'hidden') save(true); });
   listen(window, 'pagehide', () => save(true));
+  if (loadingProgress) Promise.resolve(progress).then(saved => {
+    if (stopped || !loadingProgress) return;
+    loadingProgress = false;
+    resumeAt = saved && !saved.completed ? saved.position : 0;
+    resume();
+    save();
+  }, () => {
+    if (stopped || !loadingProgress) return;
+    loadingProgress = false; progressFailed = true;
+    onError('Your saved place could not be loaded. Try again to resume.');
+  });
   return {
-    restart() { resumeAt = 0; video.currentTime = 0; started = true; save(true); },
+    restart() { loadingProgress = false; progressFailed = false; resumeAt = 0; video.currentTime = 0; started = true; save(true); },
     stop() {
       save(true); stopped = true;
       listeners.forEach(remove => remove());
