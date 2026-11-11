@@ -25,6 +25,7 @@
 .field>.field-row{display:flex;margin-bottom:0}
 
 /* Touch focus keeps controls usable without the keyboard's blue outer ring. */
+.search-page #search-status:not(:empty){margin:-12px 0 20px;font-size:13px}
 html[data-input=touch] :is(button,a,input,select,textarea,summary,[tabindex]):focus:not(.profile-swatch[aria-pressed=true]){outline:none}
 html[data-input=touch] select:focus{border-color:#ffffff1b}
 html[data-input=touch] .switch input:focus-visible+span{outline:none}

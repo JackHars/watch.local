@@ -104,6 +104,8 @@ test('provider catalog covers pagination, search, details, IMDb mapping, artwork
     if (u.pathname === '/api/discover') { assert.equal(u.searchParams.get('year'), '1999'); return response({ items: [card], page: 2, totalPages: 37, totalResults: 720 }); }
     if (u.pathname === '/api/tv/1396/season/2') return response({ episodes: [{ id: 972873, episode_number: 1, name: 'Seven Thirty-Seven', runtime: 48 }] });
     if (path === '/movie/popular') return response({ page: Number(u.searchParams.get('page')), results: [movie], total_pages: 500 });
+    if (path === '/movie/603') return response({ id: 603, title: 'The Matrix', popularity: 50, vote_count: 10000 });
+    if (path === '/tv/711') return response({ id: 711, name: 'Threat Matrix', seasons: [], popularity: 2, vote_count: 40 });
     if (path === '/movie/550') return response(movie);
     if (path === '/tv/1396') return response(series);
     if (path === '/movie/550/images') return response({ posters: [{ file_path: '/poster.jpg' }], backdrops: [] });
@@ -139,6 +141,33 @@ test('a failed primary uses its mirror; invalid metadata is not cached and empty
   assert.equal((await service.request('/movie/550')).title, 'Fight Club'); assert.equal(calls, 2); assert.equal(fallbacks, 0);
   primaryBroken = false;
   assert.equal((await service.request('/search/multi', { query: 'no such title' })).results.length, 0); assert.equal(fallbacks, 0);
+});
+
+test('existing search caches are ranked immediately, reuse detail metadata, and stay isolated from caller mutations', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'watchlocal-search-'));
+  const at = Date.now(), query = 'vision quest', key = JSON.stringify(['/search/multi', [['query', query]]]);
+  const results = [
+    { id: 101, title: 'Vision Quest', media_type: 'movie' },
+    { id: 102, name: 'VisionQuest', media_type: 'tv' },
+    { id: 101, title: 'Vision Quest', media_type: 'movie' },
+  ];
+  await writeFile(join(directory, 'metadata-cache.json'), JSON.stringify({ version: 1, entries: [[key, { at, data: { results, page: 1, total_pages: 1, total_results: 3 } }]] }));
+  let calls = 0, service;
+  try {
+    service = createMetadataService({ directory, sources: sevenSources.slice(0, 1), getConfig: () => ({}), fetcher: async url => {
+      calls++; const path = new URL(url).searchParams.get('path');
+      assert.ok(['/tv/102', '/movie/101'].includes(path), 'cached search must not need a fresh search or trending request');
+      return response(path === '/tv/102'
+        ? { id: 102, name: 'VisionQuest', seasons: [], popularity: 200, vote_count: 1000 }
+        : { id: 101, title: 'Vision Quest', popularity: 2, vote_count: 150 });
+    } });
+    const first = await service.request('/search/multi', { query });
+    assert.deepEqual(first.results.map(item => item.id), [102, 101]);
+    assert.equal(first.total_results, 2); assert.equal(calls, 2);
+    first.results[0].name = 'Mutated';
+    const again = await service.request('/search/multi', { query });
+    assert.equal(again.results[0].name, 'VisionQuest'); assert.equal(calls, 2);
+  } finally { await service?.flush(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test('TMDB is opt-in, only follows source failures, never receives or leaks another credential, and disabling takes effect immediately', async () => {

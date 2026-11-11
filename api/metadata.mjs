@@ -5,6 +5,7 @@ import { settingsStore, dataDirectory, problem } from './settings.mjs';
 import { requestTMDB } from './tmdb.mjs';
 import { fetchTrendingPanel, fetchPublicIMDb } from './tmdb-public.mjs';
 import { collectTopRated } from './top-rated.mjs';
+import { improveSearchResults } from './search.mjs';
 
 // Public catalog endpoints used by the Vidrift/7Movies web player.
 // No embedded API key or direct TMDB request is needed for these sources.
@@ -228,9 +229,22 @@ export function createMetadataService({ directory, fetcher = (...args) => fetch(
     if (kind === 'curated') return curatedTopRated(path, extra, signal);
     if (kind === 'genres') return { genres: genres[path.split('/')[2]].map(([id, name]) => ({ id, name })) };
     const config = getConfig() || {};
+    const finish = async data => {
+      const copy = structuredClone(data);
+      if (kind === 'search') {
+        const trending = cache.get(TRENDING_KEY);
+        copy.results = await improveSearchResults(copy.results, extra.query, {
+          now: now(), signal,
+          trending: trending && now() - trending.at < HOUR ? trending.data.results : [],
+          getDetails: (type, id, bounded) => request(`/${type}/${id}`, {}, bounded),
+        });
+        copy.total_results = Math.max(copy.results.length, (copy.total_results || 0) - (data.results.length - copy.results.length));
+      }
+      return copy;
+    };
     const key = JSON.stringify([path, Object.entries(extra).filter(([key]) => key !== 'api_key').sort()]);
     const cached = cache.get(key), ttl = ['detail','season','ids','images'].includes(kind) ? 6 * HOUR : HOUR / 4;
-    if (cached && now() - cached.at < ttl) return structuredClone(cached.data);
+    if (cached && now() - cached.at < ttl) return finish(cached.data);
     const credential = config.tmdbFallback && config.tmdbCredential;
     const fallbackKey = credential ? 'tmdb:' + createHash('sha256').update(credential).digest('hex').slice(0,16) + ':' + key : null;
     const run = async () => {
@@ -269,10 +283,10 @@ export function createMetadataService({ directory, fetcher = (...args) => fetch(
       throw Object.assign(problem(502, kind === 'ids' ? 'IMDb information is unavailable for this title. VidSrc may need the optional TMDB fallback.' : 'The catalog sources are unavailable. Try again shortly or configure the optional TMDB fallback in Settings → Metadata.'), { retryAfterMs });
     };
     // Requests with independent cancellation signals must not cancel one another.
-    if (signal) return structuredClone(await run());
+    if (signal) return finish(await run());
     const pendingKey = key + (fallbackKey || '');
     if (!pending.has(pendingKey)) pending.set(pendingKey, run().finally(() => pending.delete(pendingKey)));
-    return structuredClone(await pending.get(pendingKey));
+    return finish(await pending.get(pendingKey));
   }
   return { request, flush };
 }

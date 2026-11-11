@@ -19,7 +19,7 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;',
 const paths = { home:'m3 10 9-7 9 7v11h-6v-7H9v7H3Z',play:'m8 5 11 7-11 7Z',search:'m21 21-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',settings:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1Z',left:'m15 6-6 6 6 6',right:'m9 6 6 6-6 6',up:'m6 15 6-6 6 6',down:'m6 9 6 6 6-6',close:'m6 6 12 12M6 18 18 6',plus:'M12 5v14M5 12h14',check:'m5 12 4 4L19 6',info:'M12 11v6m0-10v.1M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',tv:'M3 5h18v13H3ZM8 21h8',user:'M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0M4 21v-3a8 8 0 0 1 16 0v3',layers:'m12 3 10 5-10 5L2 8Zm-10 9 10 5 10-5M2 17l10 5 10-5',copy:'M9 8h11v13H9ZM5 16H3V3h11v2',eye:'M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12Zm13 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0',logout:'M9 4H3v16h6M10 12h11m-5-5 5 5-5 5',refresh:'M21 12a9 9 0 1 1-9-9c2.5 0 4.9 1 6.7 2.7L21 8M21 3v5h-5',activity:'M2 12h4l3-8 6 16 3-8h4',film:'M3 3h18v18H3ZM7 3v18M17 3v18M3 8h4m-4 8h4m10-8h4m-4 8h4',bookmark:'M6 3h12v18l-6-4-6 4Z',clock:'M12 7v5l3 2M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0'};
 const icon = name => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[name]||paths.info}"/></svg>`;
 const state = { user:null, profile:null, profiles:[], lanAccess:false, name:'watch.local', route:0, page:1, query:'', settings:null, items:[], drag:null };
-let homeCarousel;
+let homeCarousel, stopSearch = () => {};
 function stopHomeCarousel(){homeCarousel?.destroy();homeCarousel=null;}
 const img = (path, size='w780') => path && /^\/[\w.\/-]+$/.test(path) ? `https://image.tmdb.org/t/p/${size}${path}` : '';
 const image = (path, alt='', size='w780', eager=false) => path ? `<img src="${esc(img(path,size))}" alt="${esc(alt)}" loading="${eager?'eager':'lazy'}">` : '';
@@ -82,9 +82,53 @@ function listKey(){return `watchlocal.list.${state.user.id}.${state.profile.id}`
 function storedList(){return watchlistPreference(state.user.id,state.profile.id,state.profile.migrated||state.profiles[0]?.id===state.profile.id);}
 function saved(item){return storedList().some(i=>i.id===item.id && i.type===item.type);}
 function saveTitle(){const item=state.detail,list=storedList(),index=list.findIndex(i=>i.id===item.id&&i.type===item.type);if(index>=0)list.splice(index,1);else list.unshift(item);localStorage.setItem(listKey(),JSON.stringify(list.slice(0,100)));const button=$('[data-action=save]');button.innerHTML=icon(index>=0?'plus':'check')+(index>=0?'Add to My List':'In My List');toast(index>=0?'Removed from My List':'Added to My List');}
-function renderLogin(){stopHomeCarousel();state.route++;state.settings=null;state.profile=null;state.profiles=[];viewPositions.clear();visibleRoute='';$('#app').innerHTML=`<main class="login-page" id="main"><div class="login-card"><img class="brand-mark" src="/brand.svg" alt="watch.local" width="422" height="72"><h1>Welcome to ${esc(state.name)}.</h1><p>Your next watch is waiting.</p><form id="login-form"><label class="field"><span>Username</span><input name="username" autocomplete="username" required autofocus></label><label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label><p class="error" role="alert" id="login-error"></p><button class="btn primary" type="submit">Sign in ${icon('right')}</button></form><p class="hint">Use the account you created in the terminal,<br>or an account added by your administrator.</p></div></main>`;$('#login-form').onsubmit=async event=>{event.preventDefault();const button=$('button',event.target);setBusy(button,true);try{const data=await api('login',{method:'POST',body:Object.fromEntries(new FormData(event.target))});state.user=data.user;route();}catch(e){$('#login-error').textContent=e.message;}finally{setBusy(button,false);}};}
+function renderLogin(){stopSearch();stopHomeCarousel();state.route++;state.settings=null;state.profile=null;state.profiles=[];viewPositions.clear();visibleRoute='';$('#app').innerHTML=`<main class="login-page" id="main"><div class="login-card"><img class="brand-mark" src="/brand.svg" alt="watch.local" width="422" height="72"><h1>Welcome to ${esc(state.name)}.</h1><p>Your next watch is waiting.</p><form id="login-form"><label class="field"><span>Username</span><input name="username" autocomplete="username" required autofocus></label><label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label><p class="error" role="alert" id="login-error"></p><button class="btn primary" type="submit">Sign in ${icon('right')}</button></form><p class="hint">Use the account you created in the terminal,<br>or an account added by your administrator.</p></div></main>`;$('#login-form').onsubmit=async event=>{event.preventDefault();const button=$('button',event.target);setBusy(button,true);try{const data=await api('login',{method:'POST',body:Object.fromEntries(new FormData(event.target))});state.user=data.user;route();}catch(e){$('#login-error').textContent=e.message;}finally{setBusy(button,false);}};}
 function tmdbForm(configured=false){return `<p class="tmdb-copy">A TMDB account is optional. Add your own credential if you want an additional fallback when upstream information is unavailable. <a class="text-link" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">Get a TMDB credential ${icon('right')}</a></p><form id="tmdb-form"><label class="field"><span>${configured?'Replace API key or Read Access Token':'API key or Read Access Token'}</span><span class="field-row"><input id="tmdb-credential" name="credential" type="password" autocomplete="off" spellcheck="false" autocapitalize="none" maxlength="4096" required placeholder="Paste your TMDB credential"><button class="icon-btn" type="button" data-action="reveal" data-target="tmdb-credential" aria-label="Show TMDB credential">${icon('eye')}</button></span><small>${configured?'Leave the saved credential as it is, or enter a replacement.':'After saving, you can enable TMDB fallback above.'} Your credential stays on this server and is sent only to TMDB.</small></label><p class="error" id="tmdb-error" role="alert"></p><div class="actions"><button class="btn blue" type="submit">Verify and ${configured?'replace':'save'}</button>${configured?'<button class="btn ghost" type="button" data-action="remove-tmdb">Remove credential</button>':''}</div></form>`;}
 function bindTMDBForm(){const form=$('#tmdb-form');if(!form)return;form.onsubmit=async event=>{event.preventDefault();const button=$('[type=submit]',form);setBusy(button,true);button.textContent='Checking with TMDB…';$('#tmdb-error').textContent='';try{await api('tmdb',{method:'PUT',body:{credential:form.elements.credential.value}});form.reset();toast('TMDB credential saved');route();}catch(error){const message=$('#tmdb-error');if(message)message.textContent=error.message;setBusy(button,false);}};}
+function focusSearch(){
+  window.scrollTo(0,0);
+  $('#search')?.focus({preventScroll:true});
+}
+function openSearch(){
+  if(!state.user||!state.profile)return;
+  if(location.hash==='#search'&&$('#search'))return focusSearch();
+  // Render and focus within the original click/keypress. A later hashchange
+  // loses the user gesture iOS needs to bring up the software keyboard.
+  if(location.hash!=='#search')history.pushState(null,'','#search');
+  route({restoreScroll:false});
+}
+function renderSearch(version){
+  shell(`<div class="page search-page"><div class="page-head"><div><h1>Search</h1><p>Find movies and shows.</p></div></div><form id="search-form" role="search"><label class="search-field">${icon('search')}<input id="search" type="search" placeholder="Movies, shows, and more" aria-label="Search titles" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="search" maxlength="200"></label></form><p id="search-status" class="muted" role="status" aria-live="polite"></p><div id="results"></div></div>`);
+  const input=$('#search'),results=$('#results'),status=$('#search-status');
+  let timer,controller,sequence=0;
+  const empty=()=>`<div class="empty">${icon('search')}<h2>What are you in the mood for?</h2><p>Search by title to explore the catalog.</p></div>`;
+  results.innerHTML=empty();
+  function update(immediate=false){
+    clearTimeout(timer);controller?.abort();
+    const query=input.value.trim(),seq=++sequence;
+    if(query.length<2){status.textContent='';results.removeAttribute('aria-busy');results.innerHTML=query?'<div class="empty"><p>Enter at least two characters.</p></div>':empty();return;}
+    status.textContent='Searching…';results.setAttribute('aria-busy','true');
+    results.innerHTML='<div class="empty"><div class="spinner" aria-hidden="true"></div></div>';
+    const run=async()=>{
+      if(version!==state.route)return;
+      controller=new AbortController();
+      try{
+        const data=await api('browse?q='+encodeURIComponent(query),{signal:controller.signal});
+        if(version!==state.route||seq!==sequence)return;
+        status.textContent=data.items.length?`${data.items.length} ${data.items.length===1?'result':'results'} · Most relevant first`:'';
+        results.innerHTML=data.items.length?`<div class="grid">${data.items.map(item=>card(item,true)).join('')}</div>`:'<div class="empty"><h2>No matching titles</h2><p>Try a different title or a shorter search.</p></div>';
+      }catch(error){if(version===state.route&&seq===sequence&&error.name!=='AbortError'){status.textContent='';results.innerHTML=errorBox(error);}}
+      finally{if(version===state.route&&seq===sequence)results.removeAttribute('aria-busy');}
+    };
+    if(immediate)run();else timer=setTimeout(run,250);
+  }
+  input.addEventListener('input',event=>{if(!event.isComposing)update();});
+  input.addEventListener('compositionstart',()=>{clearTimeout(timer);controller?.abort();++sequence;});
+  input.addEventListener('compositionend',()=>update());
+  $('#search-form').addEventListener('submit',event=>{event.preventDefault();update(true);});
+  stopSearch=()=>{clearTimeout(timer);++sequence;controller?.abort();};
+  focusSearch();
+}
 history.scrollRestoration='manual';
 const viewPositions=new Map();let visibleRoute='';
 async function profilesPage(){
@@ -109,16 +153,16 @@ function addProfile(){
     created:async profile=>{if(version!==state.route||userId!==state.user?.id||state.profile)return;await profilesPage();$(`[data-profile-id="${profile.id}"]`)?.focus();},
   });
 }
-async function route(){
+async function route({restoreScroll=true}={}){
   const next=location.hash||'#home',changed=next!==visibleRoute;
   if(changed&&visibleRoute&&state.profile){viewPositions.set(visibleRoute,{top:window.scrollY,rails:Object.fromEntries([...document.querySelectorAll('.rail')].map(rail=>[rail.closest('section')?.querySelector('h2')?.textContent,rail.scrollLeft]))});if(viewPositions.size>100)viewPositions.delete(viewPositions.keys().next().value);}
   visibleRoute=next;const pending=renderRoute(),version=state.route;await pending;
-  const saved=changed&&viewPositions.get(next);
+  const saved=restoreScroll&&changed&&viewPositions.get(next);
   if(saved&&version===state.route&&state.user&&state.profile){window.scrollTo(0,saved.top);document.querySelectorAll('.rail').forEach(rail=>rail.scrollLeft=saved.rails[rail.closest('section')?.querySelector('h2')?.textContent]||0);}
 }
-async function renderRoute(){if(!state.user)return renderLogin();if(!state.profile)return profilesPage();const version=++state.route;const [page,sub,id]=(location.hash.slice(1)||'home').split('/');state.page=1;window.scrollTo(0,0);
+async function renderRoute(){stopSearch();if(!state.user)return renderLogin();if(!state.profile)return profilesPage();const version=++state.route;const [page,sub,id]=(location.hash.slice(1)||'home').split('/');state.page=1;window.scrollTo(0,0);
   if(page==='settings'){shell('<div class="page"><div class="empty"><div class="spinner"></div></div></div>');try{await settingsPage(sub||'general',version);}catch(e){if(version===state.route)shell(`<div class="page">${errorBox(e)}</div>`);}return;}
-  if(page==='search'){shell(`<div class="page"><div class="page-head"><div><h1>Find your next favorite.</h1><p>Search movies and series.</p></div></div><label class="search-field">${icon('search')}<input id="search" type="search" placeholder="Movies, shows, and more" aria-label="Search titles" autocomplete="off"></label><div id="results"><div class="empty">${icon('search')}<h2>What are you in the mood for?</h2><p>Search by title to explore the catalog.</p></div></div></div>`);let timer,sequence=0;$('#search').addEventListener('input',event=>{clearTimeout(timer);const q=event.target.value.trim(),seq=++sequence;timer=setTimeout(async()=>{if(version!==state.route)return;if(q.length<2){$('#results').innerHTML='<div class="empty"><p>Enter at least two characters.</p></div>';return;}try{const data=await api('browse?q='+encodeURIComponent(q));if(version!==state.route||seq!==sequence)return;$('#results').innerHTML=data.items.length?`<div class="grid">${data.items.map(i=>card(i,true)).join('')}</div>`:'<div class="empty"><h2>No matching titles</h2><p>Try a different title or a shorter search.</p></div>';}catch(e){if(version===state.route)$('#results').innerHTML=errorBox(e);}},300);});$('#search').focus();return;}
+  if(page==='search'){renderSearch(version);return;}
   shell(`<div class="page"><div class="page-head"><h1>${page==='live'?'Live, right now.':page==='movies'?'Movies':page==='series'?'Series':'Your next watch.'}</h1></div><div class="grid">${Array.from({length:10},()=>'<div class="skeleton poster"></div>').join('')}</div></div>`);
   try{
     if(page==='title'){
@@ -269,7 +313,7 @@ async function play(data,fresh=false){if(!state.profile)return profilesPage();co
   }catch(e){if(controller.signal.aborted||!$('.player-loading',player))return;$('.player-loading',player).innerHTML=`${icon('info')}<h2>Playback unavailable</h2><p>${esc(e.message)}</p><button class="btn" data-action="retry-play">Try again</button>`;}
 }
 $('#player').addEventListener('cancel',e=>{e.preventDefault();closePlayer();});
-document.addEventListener('click',async e=>{if(e.target.closest('.skip')){e.preventDefault();$('#main')?.focus();return;}const button=e.target.closest('[data-action]');if(!button)return;const action=button.dataset.action;
+document.addEventListener('click',async e=>{if(e.target.closest('a[href="#search"]')&&!e.defaultPrevented&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&!e.shiftKey&&e.button===0){e.preventDefault();openSearch();return;}if(e.target.closest('.skip')){e.preventDefault();$('#main')?.focus();return;}const button=e.target.closest('[data-action]');if(!button)return;const action=button.dataset.action;
   try{
     if(action==='reload')return route();
     if(action==='add-profile')return addProfile();
@@ -297,5 +341,5 @@ document.addEventListener('click',async e=>{if(e.target.closest('.skip')){e.prev
 window.addEventListener('hashchange',route);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshContinueWatching();});
 window.addEventListener('focus',refreshContinueWatching);
-window.addEventListener('keydown',event=>{if(event.key==='/'&&!/INPUT|TEXTAREA|SELECT/.test(event.target.tagName)&&!$('#player').open&&!$('#dialog').open){event.preventDefault();location.hash='search';}});
+window.addEventListener('keydown',event=>{if(event.key==='/'&&!/INPUT|TEXTAREA|SELECT/.test(event.target.tagName)&&!$('#player').open&&!$('#dialog').open){event.preventDefault();openSearch();}});
 try{let session=await api('session');if(!session.user&&session.lanAccess){await api('logout',{method:'POST',body:{}});session=await api('session');}state.user=session.user;state.lanAccess=session.lanAccess;state.name=session.name;route();}catch(e){$('#app').innerHTML=`<main class="login-page">${errorBox(e)}</main>`;}
