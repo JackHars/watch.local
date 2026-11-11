@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises';
-import { settingsStore, publicUser, problem } from './settings.mjs';
+import { settingsStore, dataDirectory, publicUser, problem } from './settings.mjs';
+import { join } from 'node:path';
+import { createUpdateControl } from './updates.mjs';
 import { requireSession, sessionUser, requestOrigin, sameOrigin, lanWebUser, login, signOut, issueSession } from './sessions.mjs';
 import { initializeIPTV, browserPlay, browserSports, catalogStatus, refreshCatalog } from './iptv.mjs';
 import { saveTMDBCredential } from './tmdb.mjs';
@@ -8,6 +10,7 @@ import { watchProgressStore } from './watch-progress.mjs';
 import { sportsArtworkOrigins } from './sports.mjs';
 
 const activity = [], started = Date.now();
+const updates = createUpdateControl(join(dataDirectory, 'updates'));
 export function recordActivity(event) { if (event.target === '/ui/activity') return; activity.push({ ...event, at: new Date().toISOString() }); if (activity.length > 200) activity.shift(); }
 const json = (res, status, data) => { if (res.destroyed) return; res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
 async function body(req) {
@@ -106,6 +109,8 @@ export async function handleWeb(req, res) {
       issueSession(res,changed); json(res,200,{user:publicUser(changed)}); return true;
     }
     requireSession(req,true);
+    if (path === '/ui/updates' && req.method === 'GET') { json(res,200,await updates.status()); return true; }
+    if (path === '/ui/updates/check' && req.method === 'POST') { await body(req); json(res,202,await updates.check()); return true; }
     if (path === '/ui/settings' && req.method === 'GET') {
       json(res,200,{config:settingsStore.publicConfig(),users:settingsStore.get().users.map(publicUser),ownerId:settingsStore.get().ownerId,catalog:catalogStatus(),uptime:Math.floor((Date.now()-started)/1000),running:req.watchlocalNetwork||{host:process.env.HOST||req.socket.localAddress,port:req.socket.localPort,webPort:req.socket.localPort,webPort80:false,webError:''}}); return true;
     }

@@ -151,6 +151,44 @@ top bar, which hides on downward scroll and returns when you scroll up. The layo
 indicator. Add the page to your Home Screen for a standalone window on supported
 browsers; playback and browsing still need a connection to the server.
 
+### Automatic updates
+
+**Settings → Updates** can automatically install new commits from the
+repository's `main` branch. It is **off by default**. The default check interval
+is five minutes; **Check now** queues a check within a minute. With automatic
+updates off, a manual check reports available updates without installing them.
+
+Install the host service once on Linux, as the user who owns the checkout and
+can run Docker Compose:
+
+```sh
+node scripts/install-updater.mjs --compose /absolute/path/compose.yaml --data /absolute/path/data
+sudo loginctl enable-linger "$USER"
+```
+
+The Compose services default to `watchlocal,discovery`; use `--services` to
+specify different names. A native installation running as a **user systemd
+service** can use `--service watchlocal.service` instead of `--compose` and needs
+Node 24 or later. Docker hosts need Node 22 or later, Git, `flock`, systemd and
+Docker Compose; candidate dependencies are installed using the app's Node image.
+The installer prints whether lingering still needs to be enabled. It keeps the
+timer running after logout and at boot. Then turn on **Automatic updates** in
+Settings. No GitHub credential or inbound webhook is required for a public repo.
+
+The host agent only follows the configured GitHub `origin` and fast-forwards
+`main`. It waits for the exact commit's `checks.yml` push workflow to succeed,
+prepares dependencies and checks syntax in a separate checkout, then briefly
+restarts the app. Local changes, divergent history, failed checks and network
+errors leave the installed version in place. Both web and IPTV health endpoints
+are checked; override their local addresses with `--health-urls` if your runtime
+ports differ from saved settings.
+
+Private data and the previous dependencies are backed up outside the repository
+before installation. If startup fails, code, dependencies and data are restored;
+the failed commit is skipped until a newer one arrives. An interrupted update
+is recovered on the next timer run. The web app exchanges status and check
+requests through private files and never receives a Docker socket or shell access.
+
 ### Screenshots
 
 <p align="center">

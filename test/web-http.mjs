@@ -46,6 +46,8 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/profiles.mjs')).status,200);
   assert.equal((await request('/home.mjs')).status,200);
   assert.equal((await request('/ui/profiles')).status,401);
+  assert.equal((await request('/ui/updates')).status,401);
+  assert.equal((await request('/ui/updates/check',{method:'POST',body:{}})).status,401);
   assert.equal((await request('/ui/profiles',{method:'POST',body:{name:'Guest',color:'#527de0'}})).status,401);
   assert.equal((await request('/ui/progress')).status,401);
   assert.equal((await request('/ui/progress',{method:'POST',body:{}})).status,401);
@@ -97,6 +99,13 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/ui/progress?type=movie&id=550&profileId='+viewerProfile.id+'&user='+owner.id,{cookie}).then(r=>r.json())).progress.position,1800);
   assert.equal((await request('/ui/progress',{cookie,method:'POST',body:{...progress,type:'live'}})).status,400);
   assert.equal((await request('/ui/settings',{cookie})).status,403);
+  assert.equal((await request('/ui/updates',{cookie})).status,403);
+  assert.equal((await request('/ui/updates/check',{cookie,method:'POST',body:{}})).status,403);
+  assert.equal((await request('/ui/updates/check',{cookie:admin,method:'POST',body:{},origin:'https://evil.test'})).status,403);
+  assert.equal((await request('/ui/updates/check',{cookie:admin,method:'POST',body:{}})).status,503);
+  assert.equal((await request('/ui/updates',{cookie:admin}).then(r=>r.json())).available,false);
+  assert.equal((await request('/ui/settings',{cookie:admin,method:'PUT',body:{updates:{enabled:true,intervalMinutes:5}}})).status,200);
+  assert.equal((await request('/ui/settings',{cookie:admin,method:'PUT',body:{updates:{command:'anything'}}})).status,400);
   assert.equal((await request('/ui/tmdb',{method:'PUT',cookie,body:{credential:'fixture-tmdb-credential'}})).status,403);
   assert.equal((await request('/ui/tmdb',{method:'DELETE',cookie})).status,403);
   assert.equal((await request('/resolve?tmdb=550')).status,401);assert.equal((await request('/resolve?tmdb=550',{cookie})).status,403);assert.equal((await request('/proxy?u=https://fixture.test/master',{cookie})).status,403);assert.equal((await request('/ui/users',{cookie,method:'POST',body:{username:'other',password:'otherpass'}})).status,403);
