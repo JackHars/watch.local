@@ -1,0 +1,67 @@
+{
+  "tool": "Built-in image_gen",
+  "concepts": [
+    {
+      "number": 1,
+      "name": "Signal W",
+      "prompt": "Use case: logo-brand. Create ONE polished logo concept for the self-hosted streaming app named exactly \"watch.local\". Concept 01: Signal W. An original bold geometric W symbol built from three soft rounded signal ribbons; a subtle right-facing play-shaped negative space is integrated into the middle. Ice-blue and white mark on a solid near-black #090b10 background. Below the mark, the exact lowercase wordmark \"watch.local\" in refined clean sans-serif. Square logo presentation, centered with generous margins, mark occupies about half the canvas, wordmark clearly legible. Flat vector-like branding with exceptionally clean geometry, memorable at small app-icon sizes, calm premium streaming-service feel. No device mockup, no glossy 3D, no additional words, no watermark, no existing company logo. This is one of ten alternative design directions, not a collage.",
+      "file": "concepts/01.png"
+    },
+    {
+      "number": 2,
+      "name": "Play Dot",
+      "prompt": "Use case: logo-brand. Generate ONE polished logo direction for the self-hosted streaming app named exactly \"watch.local\". Concept 02: Play Dot. An original circular icy-blue disk with a small precise right-facing play triangle cut out in negative space, a tiny separated white dot to the lower right echoes the dot in the brand name. Extremely simple iconic geometry, balanced and distinctive. Solid near-black #090b10 background. Center the symbol above the exact lowercase wordmark \"watch.local\" in clean, carefully kerned sans-serif. Square brand presentation with generous margins. Flat vector-like artwork, crisp edges, legible at app-icon sizes. No mockup, no extra words, no shadows, no existing brand logos, no watermark. This is a single logo alternative, not a collage.",
+      "file": "concepts/02.png"
+    },
+    {
+      "number": 3,
+      "name": "Local Screen",
+      "prompt": "Use case: logo-brand. Generate ONE polished logo direction for the self-hosted streaming app named exactly \"watch.local\". Concept 03: Local Screen. An original continuous rounded screen outline that turns into a subtle house-roof peak at its top, with a small right-facing play cutout. Premium white symbol with one ice-blue corner detail. Clear visual idea: your screen at home. Solid near-black #090b10 background. Center the symbol above the exact lowercase wordmark \"watch.local\" in clean, carefully kerned sans-serif. Square brand presentation with generous margins. Flat vector-like artwork, crisp edges, legible at app-icon sizes. No mockup, no extra words, no shadows, no existing brand logos, no watermark. This is a single logo alternative, not a collage.",
+      "file": "concepts/03.png"
+    },
+    {
+      "number": 4,
+      "name": "Orbit",
+      "prompt": "Use case: logo-brand. Generate ONE polished logo direction for the self-hosted streaming app named exactly \"watch.local\". Concept 04: Orbit. An original abstract orbital loop formed from a single wide diagonal ribbon around a white right-facing play triangle. The looping ribbon is icy-blue, simple and flat. Confident cinematic identity with a distinct silhouette. Solid near-black #090b10 background. Center the symbol above the exact lowercase wordmark \"watch.local\" in clean, carefully kerned sans-serif. Square brand presentation with generous margins. Flat vector-like artwork, crisp edges, legible at app-icon sizes. No mockup, no extra words, no shadows, no existing brand logos, no watermark. This is a single logo alternative, not a collage.",
+      "file": "concepts/04.png"
+    },
+    {
+      "number": 5,
+      "name": "WL Monogram",
+      "prompt": "Use case: logo-brand. Generate ONE polished logo direction for the self-hosted streaming app named exactly \"watch.local\". Concept 05: WL Monogram. An original compact monogram combining lowercase w and l in one continuous thick rounded white stroke, punctuated with one ice-blue dot. Smart optical spacing, no play triangle. A premium typography-led identity. Solid near-black #090b10 background. Center the symbol above the exact lowercase wordmark \"watch.local\" in clean, carefully kerned sans-serif. Square brand presentation with generous margins. Flat vector-like artwork, crisp edges, legible at app-icon sizes. No mockup, no extra words, no shadows, no existing brand logos, no watermark. This is a single logo alternative, not a collage.",
+      "file": "concepts/05.png"
+    },
+    {
+      "number": 6,
+      "name": "Ribbon Play",
+      "prompt": "Use case: logo-brand. Create ONE logo concept for the self-hosted streaming app named exactly \"watch.local\". Concept 6: Ribbon Play. An original right-facing play symbol constructed from a single folded soft ribbon, a crisp white front face and icy-blue returning edge. Geometric, compact, premium and readable, subtle flat shading only. Solid near-black #090b10 background. Symbol centered above the exact lowercase wordmark \"watch.local\" in precise clean sans-serif. Square composition with generous breathing room. Vector-like clean graphic edges, suitable as a scalable app identity. No mockups, no extra text, no watermark, no existing brands. Single design, not a collage.",
+      "file": "concepts/06.png"
+    },
+    {
+      "number": 7,
+      "name": "Open Window",
+      "prompt": "Use case: logo-brand. Create ONE logo concept for the self-hosted streaming app named exactly \"watch.local\". Concept 7: Open Window. An original minimalist mark of two offset rounded window frames forming a subtle lowercase w in their overlap, with one small icy-blue dot in the upper right. White strokes, balanced negative space. No play triangle. Solid near-black #090b10 background. Symbol centered above the exact lowercase wordmark \"watch.local\" in precise clean sans-serif. Square composition with generous breathing room. Vector-like clean graphic edges, suitable as a scalable app identity. No mockups, no extra text, no watermark, no existing brands. Single design, not a collage.",
+      "file": "concepts/07.png"
+    },
+    {
+      "number": 8,
+      "name": "Aperture",
+      "prompt": "Use case: logo-brand. Create ONE logo option for the self-hosted streaming app named exactly \"watch.local\". Concept 8: Aperture. An original abstract eye-shaped aperture built from two thick opposing white arcs, with one icy-blue center disk and a subtle right-facing triangular opening. A calm cinematic symbol, no literal realistic eye, no thin fussy detail. On a solid near-black #090b10 background. Center the symbol above the exact lowercase wordmark \"watch.local\" in a refined clean sans-serif. Square brand design with generous margins. Extremely crisp edges, memorable and suited to a small app icon. No devices, mockups, extra words, stock logos or watermarks. Single design, not a collage.",
+      "file": "concepts/08.png"
+    },
+    {
+      "number": 9,
+      "name": "The Local Dot",
+      "prompt": "Use case: logo-brand. Create ONE logo option for the self-hosted streaming app named exactly \"watch.local\". Concept 9: The Local Dot. A typography-led identity: a huge custom rounded lowercase w with a single detached ice-blue dot on its baseline, white monogram with bold friendly proportions. No play symbols, no screen outline. The dot and w form the entire icon. On a solid near-black #090b10 background. Center the symbol above the exact lowercase wordmark \"watch.local\" in a refined clean sans-serif. Square brand design with generous margins. Extremely crisp edges, memorable and suited to a small app icon. No devices, mockups, extra words, stock logos or watermarks. Single design, not a collage.",
+      "file": "concepts/09.png"
+    },
+    {
+      "number": 10,
+      "name": "Glass Portal",
+      "prompt": "Use case: logo-brand. Create ONE logo option for the self-hosted streaming app named exactly \"watch.local\". Concept 10: Glass Portal. An original softened square portal with an inner right-facing play cutout, luminous pale-blue glass edges and a restrained transparent dark center. Subtle premium Liquid Glass material but clear simple silhouette; clean polished luminous edges, not a busy 3D scene. On a solid near-black #090b10 background. Center the symbol above the exact lowercase wordmark \"watch.local\" in a refined clean sans-serif. Square brand design with generous margins. Extremely crisp edges, memorable and suited to a small app icon. No devices, mockups, extra words, stock logos or watermarks. Single design, not a collage.",
+      "file": "concepts/10.png"
+    }
+  ],
+  "selectedConcept": 5,
+  "production": "The selected WL monogram is adapted as clean SVG paths in public/brand.svg and public/favicon.svg. Platform PNG icons are rendered from the SVG."
+}

@@ -1,0 +1,9 @@
+title = "watch.local secret scanning"
+[extend]
+useDefault = true
+
+[[rules]]
+id = "tmdb-api-key"
+description = "TMDB credentials must be supplied through private runtime settings"
+regex = '''(?i)(?:tmdb[a-z_]*|api_key)[\s"':=]{1,24}([a-f0-9]{32})(?:["'\s&]|$)'''
+secretGroup = 1

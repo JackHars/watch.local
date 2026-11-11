@@ -1,0 +1,23 @@
+node_modules/
+*.log
+data/
+config.json
+.env
+.env.*
+.DS_Store
+# Private runtime files and exports must never enter the repository.
+iptv*.json
+watch-progress*.json
+config.*.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.sqlite*
+*.db
+backups/
+private/
+.runtime/
+coverage/
+playwright-report/
+test-results/
