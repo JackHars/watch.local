@@ -5,6 +5,14 @@ import { profileAvatar, profilePicker, openProfileDialog, rememberedProfileId, r
 import { homeCategories, featuredItems, mountHeroCarousel } from './home.mjs';
 import { livePage, mountLivePage } from './live.mjs';
 import { watchlistPreference } from './preferences.mjs';
+// Safari can mark a tapped select as focus-visible. Track how focus was
+// reached without blurring controls, blocking selection, or changing the picker.
+document.addEventListener('pointerdown',event=>{
+  document.documentElement.dataset.input=['touch','pen'].includes(event.pointerType)?'touch':'pointer';
+},{capture:true,passive:true});
+document.addEventListener('keydown',event=>{
+  if(!event.metaKey&&!event.ctrlKey&&!event.altKey&&['Tab','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End','PageUp','PageDown'].includes(event.key))document.documentElement.dataset.input='keyboard';
+},true);
 const navigation = createNavigation();
 const $ = (s, r = document) => r.querySelector(s);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -43,7 +51,7 @@ function shell(content){
   const key=JSON.stringify([location.hash,state.user.id,state.user.role,state.user.username,state.name,state.profile.id]);
   if(navigationKey===key&&$('.topbar')&&$('#main')){$('#main').innerHTML=content;return;}
   navigationKey=key;
-  $('#app').innerHTML=nav()+`<main id="main" tabindex="-1">${content}</main><footer class="footer"><span>${esc(state.name)} · Your library, your screen.</span><span>Locally hosted · Streams resolved on demand</span></footer>`;
+  $('#app').innerHTML=nav()+`<main id="main" tabindex="-1">${content}</main>`;
   navigation.mount();
 }
 function card(item,poster=false){const t=title(item),type=item.type||'movie';return `<a class="media-card" href="#title/${type}/${item.id}" aria-label="View ${esc(t)}"><div class="card-image">${image(poster?item.poster_path:item.backdrop_path||item.poster_path,t,poster?'w500':'w780')}<span class="card-play">${icon('play')}</span></div><div class="card-caption"><strong>${esc(t)}</strong><small>${type==='tv'?'Series':'Movie'}${year(item)?' · '+esc(year(item)):''}${item.vote_average?' · '+Number(item.vote_average).toFixed(1):''}</small></div></a>`;}

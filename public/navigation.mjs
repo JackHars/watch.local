@@ -56,7 +56,7 @@ export function createNavigation() {
     const y = scrollY(), delta = y - lastY;
     lastY = y;
     if (!header?.isConnected || document.querySelector('dialog[open]')) return;
-    if (y < 80 || header.querySelector(':focus-visible')) return showHeader();
+    if (y < 80 || (document.documentElement.dataset.input !== 'touch' && header.querySelector(':focus-visible'))) return showHeader();
     if (Math.sign(delta) !== Math.sign(travel)) travel = 0;
     travel += delta;
     if (travel > 18) { header.classList.add('is-hidden'); travel = 0; }
