@@ -189,6 +189,27 @@ the failed commit is skipped until a newer one arrives. An interrupted update
 is recovered on the next timer run. The web app exchanges status and check
 requests through private files and never receives a Docker socket or shell access.
 
+The agent runs as `watchlocal-update.timer` / `watchlocal-update.service` under
+your user account. To inspect it:
+
+```sh
+systemctl --user status watchlocal-update.timer
+journalctl --user -u watchlocal-update.service -n 50
+```
+
+Its host configuration, recovery runner and latest rollback backup live in
+`~/.local/state/watchlocal-updater` by default (`--state` chooses another location
+outside the checkout and data directory). Treat `backup/data` as private: it
+contains the same account and metadata credentials as your live data. Only one
+rollback snapshot is retained; it is replaced at the next installation.
+
+If Settings reports that recovery could not finish, preserve the state directory
+and resolve the host service, disk-space or local-checkout issue before starting
+`watchlocal-update.service` again. The saved transaction is recovered before any
+new update is attempted. A commit that was rolled back is not retried by
+**Check now**; publish a corrected commit to `main` instead. To uninstall the
+schedule, run `systemctl --user disable --now watchlocal-update.timer`.
+
 ### Screenshots
 
 <p align="center">
