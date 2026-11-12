@@ -43,6 +43,27 @@ test('discovers event metadata, follows player embeds to HLS and keeps required 
   await assert.rejects(unsupported.hls({ ...event, stream_url: 'https://player.test/' }), { status: 502 });
 });
 
+test('follows event Watch links and encoded alternate players without following ads or looping', async () => {
+  const directory = page('') + '<a href="https://ads.test/">Ad</a><table class="links-table"><tr><td><a class="watch-btn" href="https://watch.test/match">Watch</a></td></tr></table>';
+  const parsed = parseSportsEvent(directory, event);
+  assert.equal(parsed.has_payload, true); assert.equal(parsed.stream_url, 'https://watch.test/match');
+  const calls = [];
+  const source = createSportsSource({ hosts: ['sports.test'], fetchResource: async url => {
+    calls.push(url);
+    if (url.includes('/live/')) return new Response(directory);
+    if (url === 'https://watch.test/match') return new Response(page('https://player.test/broken') + `<script>var ad = '&lt;/script&gt;&lt;script&gt;';</script><button class="stream-btn" data-e="${encoded('https://player.test/working')}">Alternate</button><iframe src="https://watch.test/match"></iframe>`);
+    if (url === 'https://player.test/broken') return new Response('Unavailable', { status: 503 });
+    if (url === 'https://player.test/working') return new Response('<source src="/live.m3u8">');
+    if (url === 'https://player.test/live.m3u8') return new Response('#EXTM3U\n#EXTINF:6,\nsegment.ts\n');
+    assert.fail('Unexpected sports request');
+  } });
+  const result = await source.hls(await source.resolve(event));
+  assert.equal(result.url, 'https://player.test/live.m3u8');
+  assert.equal(result.headers.referer, 'https://player.test/working');
+  assert.equal(calls.filter(url => url === 'https://watch.test/match').length, 1);
+  assert.ok(!calls.some(url => url.includes('ads.test')));
+});
+
 test('stable IDs, categories, programme guides, refresh coalescing and preservation on source failure', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'cinejoy-sports-'));
   let fail = false, calls = 0;

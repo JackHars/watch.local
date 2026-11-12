@@ -12,6 +12,7 @@ import { metadataService } from './metadata.mjs';
 import { createSubtitleService, attachSubtitles, subtitlePlaylist, subtitleSegment } from './subtitles.mjs';
 import { highestQualityPlaylist } from './hls-quality.mjs';
 import { createSportsProvider } from './sports.mjs';
+import { sportsMediaURL } from './sports-playback.mjs';
 
 const dataDirectory = pathToFileURL(settingsDirectory + '/');
 const userContext = new AsyncLocalStorage();
@@ -37,6 +38,7 @@ let refreshPromise;
 let refreshProgress;
 let writeQueue = Promise.resolve();
 const seriesCache = new Map();
+const liveExpiries = new Map();
 
 async function readJSON(name, fallback) {
   try { return JSON.parse(await readFile(new URL(name, dataDirectory), 'utf8')); }
@@ -209,18 +211,18 @@ function mediaToken(upstream, extra = {}) {
   const url = new URL(upstream);
   if (!['http:', 'https:'].includes(url.protocol)) throw new HttpError(502, 'Unsupported media URL.');
   const user = currentUser();
-  const data = Buffer.from(JSON.stringify({ ...extra, uid: user.id, version: user.version, u: url.href, exp: Date.now() + DAY })).toString('base64url');
+  const data = Buffer.from(JSON.stringify({ ...extra, uid: user.id, version: user.version, u: url.href, exp: userContext.getStore()?.mediaExpiry || Date.now() + DAY })).toString('base64url');
   const signature = createHmac('sha256', settings.secret).update(data).digest('base64url');
   return `${data}.${signature}`;
 }
-function assetURL(base, upstream, hint = 'segment', headers, vod) {
+function assetURL(base, upstream, hint = 'segment', headers, context = {}) {
   const url = new URL(upstream);
   const extension = url.pathname.match(/\.(ts|m4s|mp4|aac|mp3|vtt)$/i)?.[1]?.toLowerCase();
   // Some video hosts disguise TS segments as .jpg. Native players use the
   // extension to admit HLS resources, so expose media-specific local names.
   const suffix = hint === 'playlist' || /\.m3u8$/i.test(url.pathname) ? 'playlist.m3u8'
     : hint === 'key' ? 'key.bin' : hint === 'map' ? 'init.mp4' : `segment.${extension || 'ts'}`;
-  return `${base}/iptv/media/${mediaToken(upstream, { ...(headers ? { headers } : {}), ...(vod ? { vod } : {}) })}/${suffix}`;
+  return `${base}/iptv/media/${mediaToken(upstream, { ...context, ...(headers ? { headers } : {}) })}/${suffix}`;
 }
 function assetTarget(token) {
   const [data, signature, extra] = token.split('.');
@@ -231,12 +233,22 @@ function assetTarget(token) {
   if (!/^https?:\/\//.test(decoded.u)) throw new HttpError(403, 'Invalid media URL.');
   const user = settingsStore.user(decoded.uid);
   if (!activeUser(user) || decoded.version !== user.version) throw new HttpError(403, 'This media link is no longer valid. Reopen the title.');
-  if (userContext.getStore()) userContext.getStore().user = user;
+  if (userContext.getStore()) Object.assign(userContext.getStore(), { user, mediaExpiry: decoded.exp });
   return decoded;
 }
-function rewriteHLS(playlist, upstream, base, headers) {
+function liveExpiry(id) {
+  const user = currentUser(), key = `${user.id}:${user.version}:${id}`;
+  if (!(liveExpiries.get(key) > Date.now())) liveExpiries.set(key, Date.now() + DAY);
+  while (liveExpiries.size > 1000) liveExpiries.delete(liveExpiries.keys().next().value);
+  userContext.getStore().mediaExpiry = liveExpiries.get(key);
+}
+function rewriteHLS(playlist, upstream, base, headers, live, currentLive = live) {
   const master = /#EXT-X-STREAM-INF:/.test(playlist);
-  const rewrite = (uri, hint) => /^(data:|skd:)/i.test(uri) ? uri : assetURL(base, new URL(uri, upstream).href, hint, headers);
+  const rewrite = (uri, hint) => {
+    if (/^(data:|skd:)/i.test(uri)) return uri;
+    const absolute = new URL(uri, upstream).href;
+    return assetURL(base, live ? sportsMediaURL(absolute, live, currentLive) : absolute, hint, headers, live ? { live } : {});
+  };
   return playlist.split(/\r?\n/).map(line => {
     if (!line.trim()) return line;
     if (line.startsWith('#')) {
@@ -247,13 +259,17 @@ function rewriteHLS(playlist, upstream, base, headers) {
   }).join('\n');
 }
 
-async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders) {
+async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders, live) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 120000);
   res.once('close', () => controller.abort());
   let reader;
   try {
-    const headers = { ...upstreamHeaders };
+    // Resolve temporary sports URLs and key authorization on the server for
+    // every request, including native players that cannot set custom headers.
+    const resource = live ? await sports.media(upstream, live) : null;
+    if (resource) upstream = resource.url;
+    const headers = { ...upstreamHeaders, ...resource?.headers };
     for (const name of ['range', 'if-range']) if (req.headers[name]) headers[name] = req.headers[name];
     const response = await fetchUpstream(upstream, 120000, { method: req.method === 'HEAD' && !decorate ? 'HEAD' : 'GET', headers, signal: controller.signal });
     if (response.status === 416) {
@@ -283,7 +299,7 @@ async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders) {
       const rawPlaylist = Buffer.concat(chunks).toString('utf8');
       const original = settings.config.playback.quality === 'adaptive' ? rawPlaylist : highestQualityPlaylist(rawPlaylist);
       const sourceURL = response.url || upstream;
-      let playlist = rewriteHLS(original, sourceURL, base, upstreamHeaders);
+      let playlist = rewriteHLS(original, sourceURL, base, upstreamHeaders, live, resource?.playback);
       if (decorate) playlist = await decorate(playlist, original, sourceURL);
       return reply(req, res, 200, playlist, 'application/vnd.apple.mpegurl');
     }
@@ -456,7 +472,7 @@ async function handleIPTVRequest(req, res) {
       const target = assetTarget(media[1]);
       if (target.sub) throw new HttpError(403, 'Invalid media link type.');
       const relayBase = origin(req);
-      await serveMedia(req, res, target.u, relayBase, target.vod ? withSubtitles(relayBase, target.vod, target.headers) : undefined, target.headers); return true;
+      await serveMedia(req, res, target.u, relayBase, target.vod ? withSubtitles(relayBase, target.vod, target.headers) : undefined, target.headers, target.live); return true;
     }
     const subtitle = path.match(/^\/iptv\/subtitles\/([^/]+)\/(playlist\.m3u8|segment-(\d+)\.vtt)$/);
     if (subtitle) {
@@ -473,7 +489,8 @@ async function handleIPTVRequest(req, res) {
       if (stream[5] !== 'm3u8') throw new HttpError(415, 'Select HLS / m3u8 as the stream format in your player.');
       if (stream[1] === 'live') {
         const live = await sports.resolve(idNumber(stream[4]));
-        await serveMedia(req, res, live.url, base, undefined, live.headers); return true;
+        liveExpiry(stream[4]);
+        await serveMedia(req, res, live.url, base, undefined, live.headers, live.playback); return true;
       }
       await serveTitle(req, res, stream[1], stream[4], params, base); return true;
     }
@@ -498,8 +515,9 @@ export async function browserPlay(req, res, user, input) {
   return userContext.run({ user }, async () => {
     const base = origin(req);
     if (input.type === 'live') {
-      const live = await sports.resolve(idNumber(input.id));
-      return { url: assetURL(base, live.url, 'playlist', live.headers), provider: 'sports' };
+      const live = await sports.resolve(idNumber(input.id), { fresh: Boolean(input.fresh) });
+      liveExpiry(input.id);
+      return { url: assetURL(base, live.url, 'playlist', live.headers, live.playback ? { live: live.playback } : {}), provider: 'sports' };
     }
     const type = input.type === 'tv' ? 'series' : input.type === 'movie' ? 'movie' : null;
     if (!type) throw new HttpError(400, 'Choose a movie, episode, or live event.');
@@ -509,7 +527,7 @@ export async function browserPlay(req, res, user, input) {
     // Use the resolver's validated identity and sign it with the source URL.
     // AVKit follows this link without needing browser cookies or JS <track>s.
     const { kind, tmdb, season, episode } = resolved;
-    return { url: assetURL(base, resolved.master, 'playlist', resolved.headers, { kind, tmdb, season, episode }), provider: resolved.provider, source: resolved.server };
+    return { url: assetURL(base, resolved.master, 'playlist', resolved.headers, { vod: { kind, tmdb, season, episode } }), provider: resolved.provider, source: resolved.server };
   });
 }
 export async function browserSports() { await initializeIPTV(); return sports.browserRows(); }

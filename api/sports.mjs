@@ -2,6 +2,8 @@
 // Runs inside the LAN service; Docker and a second API listener are not needed.
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
+import { load } from 'cheerio';
+import { createSportsPlayback } from './sports-playback.mjs';
 
 export const SPORTS = { nba: 'NBA', nfl: 'NFL', nhl: 'NHL', mlb: 'MLB', cfb: 'College Football', soccer: 'Soccer', mma: 'MMA', boxing: 'Boxing', wwe: 'WWE', f1: 'Formula 1', cfl: 'CFL' };
 const HOSTS = ['streameasto.cx', 'streamseast.ws', 'streamking.cx'];
@@ -41,14 +43,24 @@ export function parseSportsEvent(page, { host, sport, slug }) {
   const match = page.match(/\bvar\s+sd\s*=\s*(\{[^\n]*?\})\s*;/);
   if (!match) throw new Error('Event page contains no sports metadata.');
   const sd = JSON.parse(match[1]);
-  let payload = '';
-  if (sd.e) payload = Buffer.from(Buffer.from(sd.e, 'base64').map(byte => byte ^ 0x4f)).toString('utf8');
   const pageURL = `https://${host}/live/${slug}`;
-  const iframe = payload.match(/<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)/i)?.[1];
-  const direct = payload.match(/(?:https?:)?\/\/[^\s"'<>]+/)?.[0];
+  const players = sportsPlayers(page, pageURL, sd.e);
   const title = page.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1]?.replace(/<[^>]+>/g, '') || slug.split('/').at(-1).replaceAll('-', ' ');
   const icon = page.match(/<meta\b[^>]*property=["']og:image["'][^>]*content=["']([^"']+)/i)?.[1];
-  return { host, sport, slug, title: plain(unescapeHTML(title)), icon: absolute(icon || '', pageURL) || '', starts_at: Number(sd.starts_at) || 0, ends_at: Number(sd.ends_at) || 0, always_live: Number(sd.always_live) === 1, has_payload: Boolean(payload), stream_url: absolute(iframe || direct || '', pageURL), pageURL };
+  return { host, sport, slug, title: plain(unescapeHTML(title)), icon: absolute(icon || '', pageURL) || '', starts_at: Number(sd.starts_at) || 0, ends_at: Number(sd.ends_at) || 0, always_live: Number(sd.always_live) === 1, has_payload: players.length > 0, stream_url: players[0] || null, stream_urls: players, pageURL };
+}
+
+function sportsPlayers(page, base, encoded) {
+  const $ = load(page), urls = [];
+  // Event directories now publish Watch links instead of an embedded player.
+  // Follow the designated controls only, not advertisements or arbitrary links.
+  for (const value of [encoded, ...$('#player-container[data-e], .stream-btn[data-e]').map((_, e) => $(e).attr('data-e')).get()]) {
+    if (!value) continue;
+    const payload = Buffer.from(Buffer.from(value, 'base64').map(byte => byte ^ 0x4f)).toString('utf8');
+    urls.push(payload.match(/<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)/i)?.[1] || payload.match(/(?:https?:)?\/\/[^\s"'<>]+/)?.[0]);
+  }
+  urls.push(...$('.links-table a.watch-btn[href]').map((_, e) => $(e).attr('href')).get());
+  return [...new Set(urls.map(url => absolute(url, base)).filter(Boolean))].slice(0, 8);
 }
 
 async function textResponse(response, limit = 2 * 1024 * 1024) {
@@ -67,18 +79,20 @@ async function pool(items, work, concurrency = 3) {
 
 export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}) {
   let active = 0; const waiting = [];
-  async function get(url, referer) {
+  async function get(url, referer, options = {}) {
     if (active >= 4) await new Promise(resolve => waiting.push(resolve)); else active++;
     try {
-      const headers = { 'User-Agent': UA, Accept: 'text/html,application/vnd.apple.mpegurl,*/*', ...(referer ? { Referer: referer, Origin: new URL(referer).origin } : {}) };
-      const response = await fetchResource(url, { headers, signal: AbortSignal.timeout(15000) });
+      const headers = { 'User-Agent': UA, Accept: 'text/html,application/vnd.apple.mpegurl,*/*', ...(referer ? { Referer: referer, Origin: new URL(referer).origin } : {}), ...(options.body ? { 'Content-Type': 'application/json' } : {}) };
+      const response = await fetchResource(url, { ...options, headers, signal: AbortSignal.timeout(15000) });
       return { text: await textResponse(response), url: response.url || url, headers };
     } finally { if (waiting.length) waiting.shift()(); else active--; }
   }
   async function event(host, sport, slug) {
     return parseSportsEvent((await get(`https://${host}/live/${slug}`, `https://${host}/${sport}`)).text, { host, sport, slug });
   }
+  const playback = createSportsPlayback({ request: get });
   return {
+    media: playback.media,
     async list(sport) {
       let last;
       for (const host of hosts) {
@@ -104,32 +118,40 @@ export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}
       throw last || new Error('The sports event is unavailable.');
     },
     async hls(item) {
-      const queue = [{ url: item.stream_url, referer: item.pageURL, depth: 0 }], visited = new Set();
+      const queue = (item.stream_urls?.length ? item.stream_urls : [item.stream_url]).map(url => ({ url, referer: item.pageURL, depth: 0 })), visited = new Set();
       let last;
-      while (queue.length && visited.size < 6) {
+      while (queue.length && visited.size < 12) {
         const next = queue.shift(); if (!next.url || visited.has(next.url)) continue;
         visited.add(next.url);
         try {
           const result = await get(next.url, next.referer);
           if (result.text.trimStart().startsWith('#EXTM3U')) return { url: result.url, headers: { referer: next.referer, origin: new URL(next.referer).origin, 'user-agent': UA } };
-          if (next.depth >= 2) continue;
+          const controlled = await playback.resolve(result.text, result.url, next.referer);
+          if (controlled) return { ...controlled, headers: { ...controlled.headers, 'user-agent': UA } };
+          if (next.depth >= 4) continue;
           const page = unescapeHTML(result.text).replaceAll('\\/', '/').replaceAll('\\u0026', '&');
           const media = [...page.matchAll(/(?:https?:)?\/\/[^\s"'<>\\]+\.m3u8(?:\?[^\s"'<>\\]*)?/gi)].map(m => m[0]);
-          const tags = [...page.matchAll(/<(?:iframe|source)\b[^>]*\bsrc\s*=\s*["']([^"']+)/gi)].map(m => m[1]);
+          const $ = load(result.text);
+          const tags = $('iframe[src], source[src]').map((_, e) => $(e).attr('src')).get();
           const files = [...page.matchAll(/(?:file|src|url)\s*["']?\s*[:=]\s*["']([^"']+\.m3u8(?:\?[^"']*)?)/gi)].map(m => m[1]);
-          for (const candidate of [...media, ...files, ...tags]) {
+          const payload = result.text.match(/\bvar\s+sd\s*=\s*(\{[^\n]*?\})\s*;/)?.[1];
+          let encoded; try { encoded = payload && JSON.parse(payload).e; } catch { /* Not an event metadata block. */ }
+          const candidates = [...sportsPlayers(result.text, result.url, encoded), ...media, ...files, ...tags];
+          if (payload && !candidates.length) last = fail(503, 'The sports source has not published a broadcast URL for this event yet.');
+          for (const candidate of candidates) {
             const url = absolute(candidate, result.url);
             if (url) queue.push({ url, referer: result.url, depth: next.depth + 1 });
           }
         } catch (error) { last = error; }
       }
-      throw fail(502, last?.message || 'This sports player does not expose a supported HLS broadcast.');
+      throw fail(last?.status || 502, last?.message || 'This sports player does not expose a supported HLS broadcast.');
     },
   };
 }
 
 export function createSportsProvider({ directory, source = createSportsSource(), now = Date.now }) {
   let state = { nextId: 1, events: {}, updatedAt: null, errors: [] }, refreshing, saveQueue = Promise.resolve();
+  const playing = new Map();
   const path = join(directory, 'sports.json');
   async function save() {
     const serialized = JSON.stringify(state);
@@ -204,13 +226,23 @@ export function createSportsProvider({ directory, source = createSportsSource(),
       for (const e of events) if (e.starts_at > 0 && e.ends_at > e.starts_at) rows.push(`<programme start="${xmlDate(e.starts_at)}" stop="${xmlDate(e.ends_at)}" channel="${channelID(e)}"><title lang="en">${xml(e.title)}</title><desc lang="en">${xml(description(e))}</desc><category lang="en">${xml(SPORTS[e.sport])}</category></programme>`);
       return rows.concat('</tv>', '').join('\n');
     },
-    async resolve(id) {
+    async resolve(id, { fresh = false } = {}) {
       await ensure(); const stored = Object.values(state.events).find(e => e.id === Number(id));
       if (!stored) throw fail(404, 'Sports event not found. Refresh Live TV in your IPTV app.');
       if (eventStatus(stored, now) === 'ENDED') throw fail(410, 'This sports event has ended.');
+      const cached = playing.get(Number(id));
+      // IPTV apps re-request their original URL every few seconds. Keep the
+      // player context stable during viewing; its media credentials renew below.
+      if (!fresh && cached && now() - cached.used < 120000) { cached.used = now(); return cached.stream; }
       const event = await source.resolve(stored);
       if (!event.has_payload || !event.stream_url) throw fail(503, eventStatus(event, now) === 'UPCOMING' ? 'This event has not started and its broadcast is not available yet.' : 'The sports source has not published a broadcast URL for this event yet.');
-      return source.hls(event);
+      const stream = await source.hls(event);
+      if (stream.playback) {
+        playing.set(Number(id), { stream, used:now() });
+        while (playing.size > 100) playing.delete(playing.keys().next().value);
+      }
+      return stream;
     },
+    media: (url, context) => source.media(url, context),
   };
 }
