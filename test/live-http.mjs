@@ -52,7 +52,7 @@ test('ZLive and sports share browser/native/Xtream/M3U/EPG routes, decoding only
     assert.equal(web.items.find(r => r.provider === 'sports').stream_id, sport.stream_id);
     assert.equal(web.items.find(r => r.stream_id === tv.stream_id).program, 'Now & Next');
     const status = await fetch(base + '/ui/settings').then(r => r.json());
-    assert.deepEqual(status.config.live, { sports: true, zlive: true });
+    assert.deepEqual(status.config.live, { sports: true, zlive: true, strmfree: true });
     assert.equal(status.live.zlive.channels, 2);
     const epg = await api('get_short_epg', { stream_id: tv.stream_id });
     assert.equal(epg.epg_listings[0].channel_id, tv.epg_channel_id);

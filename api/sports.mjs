@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { load } from 'cheerio';
 import { createSportsPlayback } from './sports-playback.mjs';
 import { createSportsStatus } from './sports-status.mjs';
+import { probeSportsStream } from './sports-probe.mjs';
 
 export const SPORTS = { nba: 'NBA', nfl: 'NFL', nhl: 'NHL', mlb: 'MLB', cfb: 'College Football', soccer: 'Soccer', mma: 'MMA', boxing: 'Boxing', wwe: 'WWE', f1: 'Formula 1', cfl: 'CFL' };
 const HOSTS = ['streameasto.cx', 'streamseast.ws', 'streamking.cx'];
@@ -84,17 +85,17 @@ export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}
   // Schedule crawls can fill all four slots for seconds at a time. Give Play
   // and credential renewal their own bounded queue so a refresh cannot stall TV.
   const queues = { catalog: { active: 0, waiting: [] }, playback: { active: 0, waiting: [] } };
-  async function get(url, referer, { background = false, timeout = 15000, ...options } = {}) {
+  async function get(url, referer, { background = false, timeout = 15000, signal, ...options } = {}) {
     const queue = queues[background ? 'catalog' : 'playback'];
     if (queue.active >= 4) await new Promise(resolve => queue.waiting.push(resolve)); else queue.active++;
     try {
       const headers = { 'User-Agent': UA, Accept: 'text/html,application/vnd.apple.mpegurl,*/*', ...(referer ? { Referer: referer, Origin: new URL(referer).origin } : {}), ...(options.body ? { 'Content-Type': 'application/json' } : {}) };
-      const response = await fetchResource(url, { ...options, headers, signal: AbortSignal.timeout(timeout) });
+      const response = await fetchResource(url, { ...options, headers, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout) });
       return { text: await textResponse(response), url: response.url || url, headers };
     } finally { if (queue.waiting.length) queue.waiting.shift()(); else queue.active--; }
   }
-  async function event(host, sport, slug, background = false) {
-    return parseSportsEvent((await get(`https://${host}/live/${slug}`, `https://${host}/${sport}`, { background })).text, { host, sport, slug });
+  async function event(host, sport, slug, background = false, signal) {
+    return parseSportsEvent((await get(`https://${host}/live/${slug}`, `https://${host}/${sport}`, { background, signal })).text, { host, sport, slug });
   }
   const playerRank = value => {
     const url = new URL(value);
@@ -106,6 +107,7 @@ export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}
   const playback = createSportsPlayback({ request: get });
   return {
     media: playback.media,
+    verify: (stream, options) => probeSportsStream(stream, { ...options, fetchResource, media: playback.media }),
     status: createSportsStatus({ request: get }),
     async list(sport) {
       let last;
@@ -119,27 +121,29 @@ export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}
       }
       throw last;
     },
-    async resolve(record) {
+    async resolve(record, { signal } = {}) {
       // Re-fetch at Play time: schedules can be published hours before player URLs.
       let latest, last;
       for (const host of [record.host, ...hosts.filter(host => host !== record.host)]) {
+        signal?.throwIfAborted();
         try {
-          const item = await event(host, record.sport, record.slug); latest ||= item;
+          const item = await event(host, record.sport, record.slug, false, signal); latest ||= item;
           if (item.has_payload && item.stream_url) return item;
         } catch (error) { last = error; }
       }
       if (latest) return latest;
       throw last || new Error('The sports event is unavailable.');
     },
-    async hls(item) {
+    async hls(item, { signal } = {}) {
       const queue = (item.stream_urls?.length ? item.stream_urls : [item.stream_url]).filter(Boolean).map(url => ({ url, referer: item.pageURL, depth: 0 })), visited = new Set();
       let last;
       while (queue.length && visited.size < 12) {
+        signal?.throwIfAborted();
         queue.sort((a, b) => playerRank(a.url) - playerRank(b.url));
         const next = queue.shift(); if (!next.url || visited.has(next.url)) continue;
         visited.add(next.url);
         try {
-          const result = await get(next.url, next.referer);
+          const result = await get(next.url, next.referer, { signal });
           if (result.text.trimStart().startsWith('#EXTM3U')) return { url: result.url, headers: { referer: next.referer, origin: new URL(next.referer).origin, 'user-agent': UA } };
           const controlled = await playback.resolve(result.text, result.url, next.referer);
           if (controlled) return { ...controlled, headers: { ...controlled.headers, 'user-agent': UA } };
@@ -164,9 +168,20 @@ export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}
   };
 }
 
-export function createSportsProvider({ directory, source = createSportsSource(), now = Date.now }) {
+export function createSportsProvider({ directory, source = createSportsSource(), fallback = null, fallbackEnabled = () => true, now = Date.now, providerTimeout = 25000 }) {
   let state = { nextId: 1, events: {}, updatedAt: null, errors: [] }, refreshing, saveQueue = Promise.resolve();
   const playing = new Map(), resolving = new Map();
+  async function attempt(work) {
+    const controller = new AbortController(), signal = controller.signal;
+    const timer = setTimeout(() => controller.abort(), providerTimeout);
+    let abort;
+    try {
+      return await Promise.race([work(signal), new Promise((_, reject) => {
+        abort = () => reject(fail(504, 'The sports provider took too long to respond.'));
+        signal.addEventListener('abort', abort, { once: true });
+      })]);
+    } finally { clearTimeout(timer); if (abort) signal.removeEventListener('abort', abort); }
+  }
   async function updateStatus(candidates = Object.values(state.events)) {
     if (!source.status) return;
     const time = seconds(now);
@@ -222,7 +237,7 @@ export function createSportsProvider({ directory, source = createSportsSource(),
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   };
   const xmlDate = value => new Date(value * 1000).toISOString().slice(0, 19).replace(/[-:T]/g, '') + ' +0000';
-  return {
+  const provider = {
     async initialize() {
       await mkdir(directory, { recursive: true, mode: 0o700 });
       try { state = JSON.parse(await readFile(path, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -252,7 +267,7 @@ export function createSportsProvider({ directory, source = createSportsSource(),
       for (const e of events) if (e.starts_at > 0 && e.ends_at > e.starts_at) rows.push(`<programme start="${xmlDate(e.starts_at)}" stop="${xmlDate(e.ends_at)}" channel="${channelID(e)}"><title lang="en">${xml(e.title)}</title><desc lang="en">${xml(description(e))}</desc><category lang="en">${xml(SPORTS[e.sport])}</category></programme>`);
       return rows.concat('</tv>', '').join('\n');
     },
-    async resolve(id, { fresh = false } = {}) {
+    async resolve(id, { fresh = false, exclude = [] } = {}) {
       await ensure({ checkStatus: false }); const stored = Object.values(state.events).find(e => e.id === Number(id));
       if (!stored) throw fail(404, 'Sports event not found. Refresh Live TV in your IPTV app.');
       // Only the selected game's scoreboard belongs on the Play path. Waiting
@@ -263,20 +278,57 @@ export function createSportsProvider({ directory, source = createSportsSource(),
       const cached = playing.get(Number(id));
       // IPTV apps re-request their original URL every few seconds. Keep the
       // player context stable during viewing; its media credentials renew below.
-      if (!fresh && cached && now() - cached.used < 120000) { cached.used = now(); return cached.stream; }
+      if (!fresh && cached && now() - cached.used < 120000 && !exclude.includes(cached.source) && (cached.source !== 'strmfree' || fallbackEnabled())) { cached.used = now(); return cached.stream; }
       const pending = (async () => {
-        const event = await source.resolve(stored);
-        if (!event.has_payload || !event.stream_url) throw fail(503, eventStatus(event, now) === 'UPCOMING' ? 'This event has not started and its broadcast is not available yet.' : 'The sports source has not published a broadcast URL for this event yet.');
-        const stream = await source.hls(event);
-        if (stream.playback) {
-          playing.set(Number(id), { stream, used:now() });
-          while (playing.size > 100) playing.delete(playing.keys().next().value);
+        const candidates = ['primary', ...(fallback && fallbackEnabled() ? ['strmfree'] : [])].filter(name => !exclude.includes(name));
+        let primaryError, last;
+        for (const name of candidates) {
+          try {
+            let stream = await attempt(async signal => {
+              const adapter = name === 'primary' ? source : fallback;
+              let value;
+              if (name === 'primary') {
+                const event = await source.resolve(stored, { signal });
+                if (!event.has_payload || !event.stream_url) throw fail(503, eventStatus(event, now) === 'UPCOMING' ? 'This event has not started and its broadcast is not available yet.' : 'The sports source has not published a broadcast URL for this event yet.');
+                value = await source.hls(event, { signal });
+              } else value = await fallback.resolve(stored, { signal, fresh });
+              // Only probe the primary when an alternate provider is enabled.
+              // Strmfree is always checked before giving it to a native player.
+              if (adapter.verify && (name === 'strmfree' || fallback && fallbackEnabled())) await adapter.verify(value, { signal });
+              return value;
+            });
+            if (fallback) stream = { ...stream, playback: { provider: 'sports-direct', root: stream.url, ...stream.playback, eventId: Number(id), sportsSource: name } };
+            if (stream.playback) {
+              playing.set(Number(id), { stream, source: name, used: now() });
+              while (playing.size > 100) playing.delete(playing.keys().next().value);
+            }
+            return stream;
+          } catch (error) { last = error; if (name === 'primary') primaryError = error; }
         }
-        return stream;
+        if (primaryError?.status === 503 && last?.status === 503) throw primaryError;
+        throw last || fail(502, 'No enabled sports source could play this event.');
       })().finally(() => resolving.delete(Number(id)));
       resolving.set(Number(id), pending);
       return pending;
     },
-    media: (url, context) => source.media(url, context),
+    async media(url, context) {
+      if (context.sportsSource === 'strmfree' && (!fallback || !fallbackEnabled())) throw fail(403, 'The Strmfree fallback is disabled. Reopen the event to use the primary source.');
+      const active = playing.get(context.eventId);
+      // Old root URLs remain usable after a failed provider is replaced. Child
+      // segments retain their original provider; don't splice unrelated bytes.
+      if (active && url === context.root && active.source !== context.sportsSource && (active.source !== 'strmfree' || fallbackEnabled())) return { url: active.stream.url, headers: active.stream.headers, playback: active.stream.playback };
+      if (context.provider === 'sports-direct') return null;
+      const adapter = context.sportsSource === 'strmfree' ? fallback : source;
+      const resource = await adapter.media?.(url, context);
+      if (resource?.playback && context.eventId) resource.playback = { ...resource.playback, eventId: context.eventId, sportsSource: context.sportsSource };
+      return resource;
+    },
+    async recover(context) {
+      if (!context?.eventId || context.sportsSource !== 'primary' || !fallback || !fallbackEnabled()) return null;
+      const cached = playing.get(context.eventId);
+      if (cached?.source === 'strmfree') return cached.stream;
+      return provider.resolve(context.eventId, { fresh: true, exclude: ['primary'] });
+    },
   };
+  return provider;
 }

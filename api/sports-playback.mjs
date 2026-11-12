@@ -1,4 +1,5 @@
 import { load } from 'cheerio';
+import { rawStrmfreeURL } from './strmfree.mjs';
 
 const problem = message => Object.assign(new Error(message), { status: 502 });
 const httpURL = (value, base) => {
@@ -11,6 +12,7 @@ const remap = (url, previous, current) => url === previous ? current : url.start
 
 export function sportsMediaURL(url, playback, current = playback) {
   const target = new URL(httpURL(url));
+  if (playback.provider === 'strmfree') return rawStrmfreeURL(target.href, playback.root);
   if (playback.provider === 'streamfree' && target.hash.startsWith('#sf=')) return httpURL(decodeURIComponent(target.hash.slice(4)), playback.player);
   // Expose a stable URL for each segment while credentials rotate upstream.
   return remap(target.href, current.root, playback.root);
@@ -133,7 +135,8 @@ export function createSportsPlayback({ request, now = Date.now }) {
         // and native players cannot run the page's JavaScript fallback loader.
         const next = target.hash.startsWith('#sf=') ? httpURL(decodeURIComponent(target.hash.slice(4)), context.player)
           : remap(target.href, context.root, current.url);
-        return { url: next, headers: current.headers, playback: current.playback };
+        const headers = /^cdn\d*\.strmfree\.st$/i.test(new URL(next).hostname) ? { ...current.headers, origin: 'https://strmfree.st', referer: 'https://strmfree.st/' } : current.headers;
+        return { url: next, headers, playback: current.playback };
       }
       if (context.provider !== 'stream-control') throw problem('Unknown sports player.');
       const auth = await authorize(context), source = auth.sources.find(s => s.id === context.source) || auth.sources[0];

@@ -61,7 +61,7 @@ test('browser, native mobile and IPTV sports relay watch pages, player authoriza
       }
       if (u.hostname === 'own-cdn.test') {
         assert.equal(headers.get('origin'), 'https://free.test');
-        if (headers.get('range')) return new Response(video.subarray(0,32), { status:206, headers:{'content-type':'video/mp2t','content-range':'bytes 0-31/752'} });
+        if (headers.get('range')) { const end=Math.min(Number(headers.get('range').split('-')[1]),video.length-1);return new Response(video.subarray(0,end+1), { status:206, headers:{'content-type':'video/mp2t','content-range':`bytes 0-${end}/752`} }); }
         return new Response(options?.method === 'HEAD' ? null : video, { headers:{'content-type':'video/mp2t'} });
       }
       assert.fail('Unexpected sports fixture request: ' + u.hostname);

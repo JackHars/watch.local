@@ -31,6 +31,7 @@ a live request log.
 | **Movies and series** | Upstream listings, artwork, seasons, and episode details; optional TMDB fallback |
 | **Live TV** | Branded channel cards, genre/country/sport filters, live sports, IPTV playlists, and an XMLTV guide |
 | **Provider fallback** | Cinejoy, Atlantic, Tvids, Zstream, Vidrift, and VidSrc |
+| **Sports fallback** | Automatically tries Strmfree for the same event if the primary sports feed fails |
 | **HLS playback** | Local stream relay, highest advertised video quality, and supported subtitles |
 | **Terminal dashboard** | Fixed connection panel with incoming requests and server activity below |
 | **Web interface** | Full-screen artwork, animated cards, search, title pages, episodes, and browser playback |
@@ -78,6 +79,15 @@ without an interactive terminal, complete the first setup in a terminal; later
 starts reuse the saved credentials.
 
 ## Web interface
+
+Live sports use the primary schedule and retain the same channel IDs in the web
+player, Xtream API and M3U playlists. **Strmfree sports fallback** is enabled by
+default under **Settings → Providers**. When the primary source fails, the server
+matches both teams and kickoff time against Strmfree and checks its video before
+playing it. Reversed home/away names are supported; unrelated or ambiguous games
+are never substituted. No extra API service, account or key is needed. The server
+handles mirror changes, temporary signatures and the raw video relay for mobile
+and IPTV players. Turning the fallback off leaves the primary sports source on.
 
 Open the **Web interface** address printed in the terminal, or
 `http://localhost:8091` on the host computer. Use the server’s LAN address on

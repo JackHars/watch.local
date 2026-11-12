@@ -84,6 +84,16 @@ feed. The server follows supported player or iframe links and forwards the
 source page's `Referer`, `Origin`, and User-Agent headers. It does not create
 a broadcast from a schedule. The guide has no catch-up or recording support.
 
+**Strmfree sports fallback** is enabled by default in Settings → Providers.
+If the primary resolver, video check or playlist fails, watch.local tries the
+same event on Strmfree using both participants and the scheduled start time.
+It also accepts reversed home/away ordering. Channel IDs and category listings
+stay unchanged; there is no second copy of each game. Playback uses Strmfree's
+raw video fallback with the required CDN headers, rather than browser-only P2P
+chunks. This works through the same native, web and IPTV relay and requires no
+separate API process or credential. Events without a matching playable broadcast
+still report unavailable.
+
 NBA, NFL, NHL, MLB, and college football game status is checked against ESPN's
 scoreboard, with a one-minute cache. Confirmed finished games leave Live TV;
 games still in progress remain available during overtime. If the scoreboard is

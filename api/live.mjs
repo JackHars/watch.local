@@ -1,11 +1,12 @@
 import { createSportsProvider } from './sports.mjs';
 import { createZliveProvider, ZLIVE_ID_BASE } from './zlive.mjs';
+import { createStrmfreeSource } from './strmfree.mjs';
 
 // Existing sports IDs stay unchanged. Persistent TV channels occupy their own
 // numeric range so Xtream clients can retain favorites across imports/restarts.
-export function createLiveProvider({ directory, sportsSource, zliveSource, getConfig = () => ({ sports: true, zlive: true }) }) {
+export function createLiveProvider({ directory, sportsSource, zliveSource, strmfreeSource = createStrmfreeSource(), getConfig = () => ({ sports: true, zlive: true, strmfree: true }) }) {
   const providers = {
-    sports: createSportsProvider({ directory, source: sportsSource }),
+    sports: createSportsProvider({ directory, source: sportsSource, fallback: strmfreeSource, fallbackEnabled: () => getConfig().strmfree !== false }),
     zlive: createZliveProvider({ directory, source: zliveSource }),
   };
   const enabled = () => Object.entries(providers).filter(([id]) => getConfig()[id]);
@@ -22,7 +23,7 @@ export function createLiveProvider({ directory, sportsSource, zliveSource, getCo
     initialize: () => Promise.all(Object.values(providers).map(p => p.initialize())),
     ensure: () => gather('ensure'),
     refresh: options => gather('refresh', options),
-    status: () => Object.fromEntries(Object.entries(providers).map(([id, p]) => [id, { enabled: Boolean(getConfig()[id]), ...p.status() }])),
+    status: () => ({ ...Object.fromEntries(Object.entries(providers).map(([id, p]) => [id, { enabled: Boolean(getConfig()[id]), ...p.status() }])), strmfree: { enabled: getConfig().strmfree !== false, ...strmfreeSource?.status?.() } }),
     categories: async () => (await gather('categories')).flat(),
     rows: async (...args) => (await gather('rows', ...args)).flat().map((row, i) => ({ ...row, num: i + 1 })),
     browserRows: async () => (await gather('browserRows')).flat().map(item => item.provider ? item : {
@@ -31,6 +32,7 @@ export function createLiveProvider({ directory, sportsSource, zliveSource, getCo
     epg: id => requireProvider(providerFor(id)).epg(id),
     resolve: (id, options) => requireProvider(providerFor(id)).resolve(id, options),
     media: (url, context) => requireProvider(context.provider === 'zlive' ? 'zlive' : 'sports').media(url, context),
+    recover: context => requireProvider('sports').recover(context),
     async xmltv(base) {
       const docs = await gather('xmltv', base);
       // XMLTV requires every channel declaration before the programmes, even
