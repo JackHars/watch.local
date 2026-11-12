@@ -109,14 +109,19 @@ export async function handleWeb(req, res) {
       // for this tap, including fresh-source retries, without caching across users.
       const key = input.requestId ? JSON.stringify([user.id,user.version,requestOrigin(req),url.search]) : null;
       for (const [id, entry] of nativeStreams) if (entry.expires < Date.now()) nativeStreams.delete(id);
-      let stream = key && nativeStreams.get(key)?.stream;
-      if (!stream) {
-        stream = await browserPlay(req, res, user, input);
+      let entry = key && nativeStreams.get(key);
+      if (!entry) {
+        entry = { expires: Date.now() + 300000, result: browserPlay(req, res, user, input).then(stream => ({ stream }), error => ({ error })) };
         if (key) {
           while (nativeStreams.size >= 128) nativeStreams.delete(nativeStreams.keys().next().value);
-          nativeStreams.set(key, { stream, expires: Date.now() + 300000 });
+          nativeStreams.set(key, entry);
         }
       }
+      const { stream, error } = await entry.result;
+      if (error) throw error;
+      // Native <video> errors hide HTTP response bodies. The UI can ask for the
+      // outcome of the same tap without resolving another stream or downloading it.
+      if (req.headers.accept === 'application/json') { json(res, 200, { ready: true }); return true; }
       if (!res.destroyed) { res.writeHead(302, { Location: stream.url, 'Cache-Control': 'no-store' }); res.end(); }
       return true;
     }

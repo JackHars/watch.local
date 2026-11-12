@@ -1,6 +1,6 @@
 import { createNavigation } from './navigation.mjs';
 import { trackPlayback } from './watch-progress.mjs';
-import { mobilePlaybackDevice, mobilePlayer } from './mobile-player.mjs';
+import { mobilePlaybackDevice, mobilePlaybackError, mobilePlayer } from './mobile-player.mjs';
 import { profileAvatar, profilePicker, openProfileDialog, rememberedProfileId, rememberProfile } from './profiles.mjs';
 import { homeCategories, featuredItems, mountHeroCarousel } from './home.mjs';
 import { livePage, mountLivePage } from './live.mjs';
@@ -268,7 +268,7 @@ function playOnMobile(data,identity,player,saved,controller,fresh){
   const vod=['movie','tv'].includes(data.type),query=new URLSearchParams(Object.entries(identity).filter(([,value])=>value!==null));
   $('.player-loading',player).outerHTML=`<video controls preload="auto" aria-label="Video player"></video><div class="player-tools"><span class="player-status" role="status">Opening fullscreen player…</span><select id="audio-track" aria-label="Audio track" hidden></select><select id="subtitle-track" aria-label="Subtitles" hidden></select><button class="btn primary small" data-action="open-fullscreen">${icon('play')}Open fullscreen</button>${vod?'<button class="btn ghost small" data-action="restart-play">Start over</button>':''}<button class="btn ghost small" data-action="retry-play">Try again</button></div>`;
   const video=$('video',player),status=$('.player-status',player);
-  const fail=message=>{if(controller.signal.aborted)return;status.textContent=message;status.classList.add('error');mobileSession?.stop();};
+  const fail=message=>{if(controller.signal.aborted)return;status.textContent=message;status.classList.add('error');$('[data-action="open-fullscreen"]',player).style.display='none';mobileSession?.stop();};
   if(vod){
     const item={...identity,title:data.title||'Now playing',poster_path:data.poster_path,backdrop_path:data.backdrop_path};
     const progress=saved.then(()=>api('progress?'+query,{signal:controller.signal})).then(history=>{
@@ -280,7 +280,7 @@ function playOnMobile(data,identity,player,saved,controller,fresh){
   }
   mobileSession=mobilePlayer(video,{onExit:()=>{if(!controller.signal.aborted)closePlayer();},onBlocked:()=>{status.textContent='Tap Open fullscreen to begin.';}});
   video.addEventListener('playing',()=>{status.classList.remove('error');status.textContent='Playing';});
-  video.addEventListener('error',()=>fail('This stream could not be played. Try again to find a fresh source.'));
+  video.addEventListener('error',async()=>{if(controller.signal.aborted)return;mobileSession?.stop();status.textContent='Checking stream availability…';fail(await mobilePlaybackError(source,{signal:controller.signal}));});
   if(fresh)query.set('fresh','1');
   query.set('requestId',[...crypto.getRandomValues(new Uint8Array(16))].map(value=>value.toString(16).padStart(2,'0')).join(''));
   const source='/ui/playback.m3u8?'+query;

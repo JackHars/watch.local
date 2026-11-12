@@ -3,6 +3,16 @@ export function mobilePlaybackDevice(device = navigator) {
     || (device.platform === 'MacIntel' && device.maxTouchPoints > 1));
 }
 
+export async function mobilePlaybackError(source, { fetchResource = fetch, signal } = {}) {
+  const fallback = 'This stream could not be played. Try again to find a fresh source.';
+  try {
+    const response = await fetchResource(source, { headers: { Accept: 'application/json' }, signal });
+    const data = await response.json();
+    if (!response.ok && typeof data.error === 'string' && data.error.trim()) return data.error.slice(0, 600);
+  } catch { /* Preserve a useful message when the server cannot be reached. */ }
+  return fallback;
+}
+
 // Call start() in the tap handler, before awaiting provider or progress requests.
 // iPhone automatically presents videos without playsinline in its native player.
 export function mobilePlayer(video, { onExit = () => {}, onBlocked = () => {}, document: doc = document } = {}) {

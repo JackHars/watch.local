@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { load } from 'cheerio';
 import { createSportsPlayback } from './sports-playback.mjs';
+import { createSportsStatus } from './sports-status.mjs';
 
 export const SPORTS = { nba: 'NBA', nfl: 'NFL', nhl: 'NHL', mlb: 'MLB', cfb: 'College Football', soccer: 'Soccer', mma: 'MMA', boxing: 'Boxing', wwe: 'WWE', f1: 'Formula 1', cfl: 'CFL' };
 const HOSTS = ['streameasto.cx', 'streamseast.ws', 'streamking.cx'];
@@ -36,6 +37,8 @@ function absolute(value, base) {
 }
 export function eventStatus(event, now = Date.now) {
   if (event.always_live) return 'LIVE';
+  const verified = event.broadcast_status;
+  if (verified && now() - verified.checkedAt < 180000 && ['ENDED', 'LIVE', 'UPCOMING'].includes(verified.state)) return verified.state;
   const time = seconds(now);
   return event.ends_at > 0 && time >= event.ends_at ? 'ENDED' : event.starts_at > time ? 'UPCOMING' : event.starts_at > 0 ? 'LIVE' : 'UNKNOWN';
 }
@@ -83,7 +86,7 @@ export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}
     if (active >= 4) await new Promise(resolve => waiting.push(resolve)); else active++;
     try {
       const headers = { 'User-Agent': UA, Accept: 'text/html,application/vnd.apple.mpegurl,*/*', ...(referer ? { Referer: referer, Origin: new URL(referer).origin } : {}), ...(options.body ? { 'Content-Type': 'application/json' } : {}) };
-      const response = await fetchResource(url, { ...options, headers, signal: AbortSignal.timeout(15000) });
+      const response = await fetchResource(url, { ...options, headers, signal: AbortSignal.timeout(options.timeout || 15000) });
       return { text: await textResponse(response), url: response.url || url, headers };
     } finally { if (waiting.length) waiting.shift()(); else active--; }
   }
@@ -93,6 +96,7 @@ export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}
   const playback = createSportsPlayback({ request: get });
   return {
     media: playback.media,
+    status: createSportsStatus({ request: get }),
     async list(sport) {
       let last;
       for (const host of hosts) {
@@ -152,6 +156,15 @@ export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}
 export function createSportsProvider({ directory, source = createSportsSource(), now = Date.now }) {
   let state = { nextId: 1, events: {}, updatedAt: null, errors: [] }, refreshing, saveQueue = Promise.resolve();
   const playing = new Map();
+  async function updateStatus() {
+    if (!source.status) return;
+    const time = seconds(now);
+    const events = Object.values(state.events).filter(e => e.listed && !e.always_live && e.starts_at <= time + 86400 && e.ends_at >= time - 21600);
+    try {
+      const statuses = await source.status(events);
+      for (const event of events) if (state.events[event.slug]?.starts_at === event.starts_at) state.events[event.slug].broadcast_status = statuses.get(event.slug);
+    } catch { /* Scoreboard availability must not prevent watching a live feed. */ }
+  }
   const path = join(directory, 'sports.json');
   async function save() {
     const serialized = JSON.stringify(state);
@@ -178,6 +191,7 @@ export function createSportsProvider({ directory, source = createSportsSource(),
         }
       }
       for (const [key, event] of Object.entries(state.events)) if (event.lastSeen < now() - 7 * 86400000) delete state.events[key];
+      await updateStatus();
       state.updatedAt = now(); state.errors = errors; await save(); return listed();
     })().finally(() => { refreshing = null; });
     return refreshing;
@@ -185,6 +199,7 @@ export function createSportsProvider({ directory, source = createSportsSource(),
   async function ensure() {
     if (!state.updatedAt) await refresh();
     else if (now() - state.updatedAt > 60000) refresh().catch(error => console.warn('Sports refresh:', error.message));
+    await updateStatus();
     return listed();
   }
   function description(event) { return `${SPORTS[event.sport]} · ${event.title}. ${event.has_payload ? 'A player link is published; playback availability is checked when opened.' : 'The broadcaster has not published a playable feed yet.'}`; }

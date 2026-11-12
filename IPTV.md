@@ -64,6 +64,13 @@ feed. The server follows supported player or iframe links and forwards the
 source page's `Referer`, `Origin`, and User-Agent headers. It does not create
 a broadcast from a schedule. The guide has no catch-up or recording support.
 
+NBA, NFL, NHL, MLB, and college football game status is checked against ESPN's
+scoreboard, with a one-minute cache. Confirmed finished games leave Live TV;
+games still in progress remain available during overtime. If the scoreboard is
+unavailable or cannot match both teams and the scheduled start, the original
+schedule is used. Mobile playback displays the server's reason when a feed is
+unavailable or the game has ended.
+
 ## IPTV endpoints
 
 | Endpoint | Purpose |

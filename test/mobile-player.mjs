@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mobilePlaybackDevice, mobilePlayer } from '../public/mobile-player.mjs';
+import { mobilePlaybackDevice, mobilePlaybackError, mobilePlayer } from '../public/mobile-player.mjs';
 
 function fixture() {
   const calls = [], doc = new EventTarget(), video = new EventTarget();
@@ -10,6 +10,18 @@ function fixture() {
   });
   return { video, doc, calls, event: (target, name) => target.dispatchEvent(new Event(name)) };
 }
+
+test('native playback reports the server reason and handles offline or unsupported media errors', async () => {
+  const url = '/ui/playback.m3u8?requestId=fixture', controller = new AbortController();
+  const message = await mobilePlaybackError(url, { signal: controller.signal, fetchResource: async (source, options) => {
+    assert.equal(source, url); assert.equal(options.headers.Accept, 'application/json'); assert.equal(options.signal, controller.signal);
+    return Response.json({ error: 'This sports event has ended.' }, { status: 410 });
+  } });
+  assert.equal(message, 'This sports event has ended.');
+  for (const fetchResource of [async () => { throw Error('Offline'); }, async () => new Response('Not JSON', { status: 502 }), async () => Response.json({ ready: true })]) {
+    assert.match(await mobilePlaybackError(url, { fetchResource }), /Try again/);
+  }
+});
 
 test('mobile devices use fullscreen while desktop and touch laptops keep the desktop player', () => {
   for (const userAgent of ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)', 'iPad', 'Android Mobile']) assert.equal(mobilePlaybackDevice({ userAgent }), true);
