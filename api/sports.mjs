@@ -81,18 +81,28 @@ async function pool(items, work, concurrency = 3) {
 }
 
 export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}) {
-  let active = 0; const waiting = [];
-  async function get(url, referer, options = {}) {
-    if (active >= 4) await new Promise(resolve => waiting.push(resolve)); else active++;
+  // Schedule crawls can fill all four slots for seconds at a time. Give Play
+  // and credential renewal their own bounded queue so a refresh cannot stall TV.
+  const queues = { catalog: { active: 0, waiting: [] }, playback: { active: 0, waiting: [] } };
+  async function get(url, referer, { background = false, timeout = 15000, ...options } = {}) {
+    const queue = queues[background ? 'catalog' : 'playback'];
+    if (queue.active >= 4) await new Promise(resolve => queue.waiting.push(resolve)); else queue.active++;
     try {
       const headers = { 'User-Agent': UA, Accept: 'text/html,application/vnd.apple.mpegurl,*/*', ...(referer ? { Referer: referer, Origin: new URL(referer).origin } : {}), ...(options.body ? { 'Content-Type': 'application/json' } : {}) };
-      const response = await fetchResource(url, { ...options, headers, signal: AbortSignal.timeout(options.timeout || 15000) });
+      const response = await fetchResource(url, { ...options, headers, signal: AbortSignal.timeout(timeout) });
       return { text: await textResponse(response), url: response.url || url, headers };
-    } finally { if (waiting.length) waiting.shift()(); else active--; }
+    } finally { if (queue.waiting.length) queue.waiting.shift()(); else queue.active--; }
   }
-  async function event(host, sport, slug) {
-    return parseSportsEvent((await get(`https://${host}/live/${slug}`, `https://${host}/${sport}`)).text, { host, sport, slug });
+  async function event(host, sport, slug, background = false) {
+    return parseSportsEvent((await get(`https://${host}/live/${slug}`, `https://${host}/${sport}`, { background })).text, { host, sport, slug });
   }
+  const playerRank = value => {
+    const url = new URL(value);
+    // These players have supported authorization adapters. Try them before
+    // opaque JavaScript embeds, but retain every published link as a fallback.
+    if (/\.m3u8$/i.test(url.pathname)) return 0;
+    return /(^|\.)(strmfree\.st|streambuff\.fit)$/i.test(url.hostname) ? 1 : 2;
+  };
   const playback = createSportsPlayback({ request: get });
   return {
     media: playback.media,
@@ -101,9 +111,9 @@ export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}
       let last;
       for (const host of hosts) {
         try {
-          const { text } = await get(`https://${host}/${sport}`);
+          const { text } = await get(`https://${host}/${sport}`, undefined, { background: true });
           const slugs = [...new Set([...text.matchAll(new RegExp(`/live/${sport}/(\\d{4}-\\d{2}-\\d{2}/[a-z0-9-]+)`, 'g'))].map(m => `${sport}/${m[1]}`))].sort().slice(0, 24);
-          const results = await pool(slugs, async slug => { try { return { event: await event(host, sport, slug) }; } catch (error) { return { error: error.message }; } }, 4);
+          const results = await pool(slugs, async slug => { try { return { event: await event(host, sport, slug, true) }; } catch (error) { return { error: error.message }; } }, 4);
           return { events: results.filter(r => r.event).map(r => r.event), errors: results.filter(r => r.error).map(r => r.error) };
         } catch (error) { last = error; }
       }
@@ -122,9 +132,10 @@ export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}
       throw last || new Error('The sports event is unavailable.');
     },
     async hls(item) {
-      const queue = (item.stream_urls?.length ? item.stream_urls : [item.stream_url]).map(url => ({ url, referer: item.pageURL, depth: 0 })), visited = new Set();
+      const queue = (item.stream_urls?.length ? item.stream_urls : [item.stream_url]).filter(Boolean).map(url => ({ url, referer: item.pageURL, depth: 0 })), visited = new Set();
       let last;
       while (queue.length && visited.size < 12) {
+        queue.sort((a, b) => playerRank(a.url) - playerRank(b.url));
         const next = queue.shift(); if (!next.url || visited.has(next.url)) continue;
         visited.add(next.url);
         try {
@@ -155,11 +166,11 @@ export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}
 
 export function createSportsProvider({ directory, source = createSportsSource(), now = Date.now }) {
   let state = { nextId: 1, events: {}, updatedAt: null, errors: [] }, refreshing, saveQueue = Promise.resolve();
-  const playing = new Map();
-  async function updateStatus() {
+  const playing = new Map(), resolving = new Map();
+  async function updateStatus(candidates = Object.values(state.events)) {
     if (!source.status) return;
     const time = seconds(now);
-    const events = Object.values(state.events).filter(e => e.listed && !e.always_live && e.starts_at <= time + 86400 && e.ends_at >= time - 21600);
+    const events = candidates.filter(e => e.listed && !e.always_live && e.starts_at <= time + 86400 && e.ends_at >= time - 21600);
     try {
       const statuses = await source.status(events);
       for (const event of events) if (state.events[event.slug]?.starts_at === event.starts_at) state.events[event.slug].broadcast_status = statuses.get(event.slug);
@@ -196,10 +207,10 @@ export function createSportsProvider({ directory, source = createSportsSource(),
     })().finally(() => { refreshing = null; });
     return refreshing;
   }
-  async function ensure() {
+  async function ensure({ checkStatus = true } = {}) {
     if (!state.updatedAt) await refresh();
     else if (now() - state.updatedAt > 60000) refresh().catch(error => console.warn('Sports refresh:', error.message));
-    await updateStatus();
+    if (checkStatus) await updateStatus();
     return listed();
   }
   function description(event) { return `${SPORTS[event.sport]} · ${event.title}. ${event.has_payload ? 'A player link is published; playback availability is checked when opened.' : 'The broadcaster has not published a playable feed yet.'}`; }
@@ -242,21 +253,29 @@ export function createSportsProvider({ directory, source = createSportsSource(),
       return rows.concat('</tv>', '').join('\n');
     },
     async resolve(id, { fresh = false } = {}) {
-      await ensure(); const stored = Object.values(state.events).find(e => e.id === Number(id));
+      await ensure({ checkStatus: false }); const stored = Object.values(state.events).find(e => e.id === Number(id));
       if (!stored) throw fail(404, 'Sports event not found. Refresh Live TV in your IPTV app.');
-      if (eventStatus(stored, now) === 'ENDED') throw fail(410, 'This sports event has ended.');
+      // Only the selected game's scoreboard belongs on the Play path. Waiting
+      // for unrelated leagues made a slow scoreboard delay every broadcast.
+      await updateStatus([stored]);
+      if (eventStatus(state.events[stored.slug] || stored, now) === 'ENDED') throw fail(410, 'This sports event has ended.');
+      if (resolving.has(Number(id))) return resolving.get(Number(id));
       const cached = playing.get(Number(id));
       // IPTV apps re-request their original URL every few seconds. Keep the
       // player context stable during viewing; its media credentials renew below.
       if (!fresh && cached && now() - cached.used < 120000) { cached.used = now(); return cached.stream; }
-      const event = await source.resolve(stored);
-      if (!event.has_payload || !event.stream_url) throw fail(503, eventStatus(event, now) === 'UPCOMING' ? 'This event has not started and its broadcast is not available yet.' : 'The sports source has not published a broadcast URL for this event yet.');
-      const stream = await source.hls(event);
-      if (stream.playback) {
-        playing.set(Number(id), { stream, used:now() });
-        while (playing.size > 100) playing.delete(playing.keys().next().value);
-      }
-      return stream;
+      const pending = (async () => {
+        const event = await source.resolve(stored);
+        if (!event.has_payload || !event.stream_url) throw fail(503, eventStatus(event, now) === 'UPCOMING' ? 'This event has not started and its broadcast is not available yet.' : 'The sports source has not published a broadcast URL for this event yet.');
+        const stream = await source.hls(event);
+        if (stream.playback) {
+          playing.set(Number(id), { stream, used:now() });
+          while (playing.size > 100) playing.delete(playing.keys().next().value);
+        }
+        return stream;
+      })().finally(() => resolving.delete(Number(id)));
+      resolving.set(Number(id), pending);
+      return pending;
     },
     media: (url, context) => source.media(url, context),
   };

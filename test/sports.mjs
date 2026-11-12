@@ -64,6 +64,70 @@ test('follows event Watch links and encoded alternate players without following 
   assert.ok(!calls.some(url => url.includes('ads.test')));
 });
 
+test('a saturated schedule crawl does not block playback requests', { timeout: 3000 }, async () => {
+  const blocked = Promise.withResolvers(), saturated = Promise.withResolvers();
+  let background = 0;
+  const source = createSportsSource({ hosts: ['sports.test'], fetchResource: async url => {
+    if (url.endsWith('/nba')) return new Response(Array.from({ length: 4 }, (_, i) => `<a href="/live/nba/2027-01-15/game-${i}">Game</a>`).join(''));
+    if (url.includes('/live/')) {
+      if (++background === 4) saturated.resolve();
+      await blocked.promise;
+      return new Response(page('https://player.test/live.m3u8'));
+    }
+    return new Response('#EXTM3U\n#EXTINF:4,\nsegment.ts\n');
+  } });
+  const listing = source.list('nba');
+  try {
+    await saturated.promise;
+    const result = await source.hls({ ...event, stream_url: 'https://player.test/live.m3u8' });
+    assert.equal(result.url, 'https://player.test/live.m3u8');
+    assert.equal(background, 4, 'Playback started while all catalog slots were occupied');
+  } finally { blocked.resolve(); await listing; }
+});
+
+test('tries supported sports players first and retains other published players as fallbacks', async () => {
+  const known = 'https://strmfree.st/embed/basketball/fixture1080p', other = 'https://player.test/embed';
+  const calls = []; let supportedAvailable = true;
+  const source = createSportsSource({ fetchResource: async url => {
+    calls.push(url);
+    if (url === known && !supportedAvailable) return new Response('Unavailable', { status: 503 });
+    return new Response('#EXTM3U\n#EXTINF:4,\nsegment.ts\n');
+  } });
+  const item = { ...event, stream_urls: [other, known] };
+  assert.equal((await source.hls(item)).url, known);
+  assert.deepEqual(calls, [known]);
+  supportedAvailable = false; calls.length = 0;
+  assert.equal((await source.hls(item)).url, other);
+  assert.deepEqual(calls, [known, other]);
+});
+
+test('simultaneous viewers share resolution, check only their game, and can retry a failed lookup', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'watchlocal-live-start-'));
+  const ready = Promise.withResolvers(), release = Promise.withResolvers(), statuses = [];
+  let lookups = 0, shouldFail = false, ended = false;
+  const source = {
+    async list(sport) { return { events: ['nba', 'nhl'].includes(sport) ? [{ ...event, sport, slug: `${sport}/2027-01-15/team-a-vs-team-b` }] : [] }; },
+    async status(events) { statuses.push(events.map(e => e.sport)); return new Map(events.map(e => [e.slug, { state: ended ? 'ENDED' : 'LIVE', checkedAt: time }])); },
+    async resolve(stored) { lookups++; ready.resolve(); await release.promise; if (shouldFail) throw Error('Temporary failure'); return { ...stored, has_payload: true, stream_url: 'https://player.test/live.m3u8' }; },
+    async hls(item) { return { url: item.stream_url, playback: { provider: 'fixture' } }; },
+  };
+  try {
+    const provider = createSportsProvider({ directory, source, now: () => time }); await provider.initialize();
+    const id = (await provider.browserRows()).find(e => e.sport === 'nba').stream_id;
+    statuses.length = 0;
+    const first = provider.resolve(id); await ready.promise;
+    const second = provider.resolve(id);
+    release.resolve();
+    const results = await Promise.all([first, second]);
+    assert.equal(lookups, 1); assert.equal(results[0], results[1]);
+    assert.deepEqual(statuses, [['nba'], ['nba']]);
+    await provider.resolve(id); assert.equal(lookups, 1);
+    shouldFail = true; await assert.rejects(provider.resolve(id, { fresh: true }), /Temporary failure/);
+    shouldFail = false; await provider.resolve(id, { fresh: true }); assert.equal(lookups, 3);
+    ended = true; await assert.rejects(provider.resolve(id), { status: 410 });
+  } finally { release.resolve(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('stable IDs, categories, programme guides, refresh coalescing and preservation on source failure', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'cinejoy-sports-'));
   let fail = false, calls = 0;
