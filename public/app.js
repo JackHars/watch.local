@@ -5,6 +5,7 @@ import { profileAvatar, profilePicker, openProfileDialog, rememberedProfileId, r
 import { homeCategories, featuredItems, mountHeroCarousel } from './home.mjs';
 import { livePage, mountLivePage } from './live.mjs';
 import { createUpdatePrompt } from './updates.mjs';
+import { createRepairTerminal } from './update-repair.mjs';
 import { watchlistPreference } from './preferences.mjs';
 // Safari can mark a tapped select as focus-visible. Track how focus was
 // reached without blurring controls, blocking selection, or changing the picker.
@@ -20,7 +21,8 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;',
 const paths = { home:'m3 10 9-7 9 7v11h-6v-7H9v7H3Z',play:'m8 5 11 7-11 7Z',search:'m21 21-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',settings:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1Z',left:'m15 6-6 6 6 6',right:'m9 6 6 6-6 6',up:'m6 15 6-6 6 6',down:'m6 9 6 6 6-6',close:'m6 6 12 12M6 18 18 6',plus:'M12 5v14M5 12h14',check:'m5 12 4 4L19 6',info:'M12 11v6m0-10v.1M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',tv:'M3 5h18v13H3ZM8 21h8',user:'M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0M4 21v-3a8 8 0 0 1 16 0v3',layers:'m12 3 10 5-10 5L2 8Zm-10 9 10 5 10-5M2 17l10 5 10-5',copy:'M9 8h11v13H9ZM5 16H3V3h11v2',eye:'M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12Zm13 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0',logout:'M9 4H3v16h6M10 12h11m-5-5 5 5-5 5',refresh:'M21 12a9 9 0 1 1-9-9c2.5 0 4.9 1 6.7 2.7L21 8M21 3v5h-5',activity:'M2 12h4l3-8 6 16 3-8h4',film:'M3 3h18v18H3ZM7 3v18M17 3v18M3 8h4m-4 8h4m10-8h4m-4 8h4',bookmark:'M6 3h12v18l-6-4-6 4Z',clock:'M12 7v5l3 2M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0'};
 const icon = name => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[name]||paths.info}"/></svg>`;
 const state = { user:null, profile:null, profiles:[], lanAccess:false, name:'watch.local', route:0, page:1, query:'', settings:null, items:[], drag:null };
-const updatePrompt = createUpdatePrompt({ api, ready:()=>state.user?.role==='admin'&&Boolean(state.profile), busy:()=>$('#player').open||$('#dialog').open });
+const repairTerminal = createRepairTerminal({ api });
+const updatePrompt = createUpdatePrompt({ api, ready:()=>state.user?.role==='admin'&&Boolean(state.profile)&&!repairTerminal.active, busy:()=>Boolean(document.querySelector('dialog[open]')) });
 let homeCarousel, stopSearch = () => {};
 function stopHomeCarousel(){homeCarousel?.destroy();homeCarousel=null;}
 const img = (path, size='w780') => path && /^\/[\w.\/-]+$/.test(path) ? `https://image.tmdb.org/t/p/${size}${path}` : '';
@@ -202,7 +204,8 @@ async function settingsPage(section,version){
   if(state.user.role==='admin')state.settings=await api('settings');else if(!['connections','account'].includes(section))section='connections';if(version!==state.route)return;
   const data=state.settings,config=data?.config;
   if(section==='updates'){
-    settingsShell(section,settingsHeader('Updates','Keep watch.local up to date automatically.')+`<form id="config-form"><div class="panel"><div class="setting-row"><div><strong>Automatic updates</strong><p>Install new commits from main after GitHub checks pass. Updates briefly restart the server.</p></div>${toggle('Automatic updates',config.updates.enabled,'name="enabled"')}</div><div class="panel-pad">${field('Check every (minutes)','intervalMinutes',config.updates.intervalMinutes,{type:'number',min:5,max:1440,required:true,hint:'Choose 5–1440 minutes. Five minutes is the default.'})}</div></div>${saveBar('Your profiles, watch history, and server settings are preserved.')}</form><div class="panel panel-pad"><div id="update-status" role="status" aria-live="polite"><p class="muted">Loading update status…</p></div><div class="actions"><button class="btn ghost small" id="check-updates" type="button">${icon('refresh')}Check now</button></div></div>`);
+    settingsShell(section,settingsHeader('Updates','Keep watch.local up to date automatically.')+`<form id="config-form"><div class="panel"><div class="setting-row"><div><strong>Automatic updates</strong><p>Install new commits from main after GitHub checks pass. Updates briefly restart the server.</p></div>${toggle('Automatic updates',config.updates.enabled,'name="enabled"')}</div><div class="panel-pad">${field('Check every (minutes)','intervalMinutes',config.updates.intervalMinutes,{type:'number',min:5,max:1440,required:true,hint:'Choose 5–1440 minutes. Five minutes is the default.'})}</div></div>${saveBar('Your profiles, watch history, and server settings are preserved.')}</form><div class="panel panel-pad"><div id="update-status" role="status" aria-live="polite"><p class="muted">Loading update status…</p></div><div class="actions"><button class="btn ghost small" id="check-updates" type="button">${icon('refresh')}Check now</button><button class="btn ghost small" id="repair-updates" type="button">Repair automatic updates</button></div></div>`);
+    $('#repair-updates').onclick=()=>repairTerminal.open();
     $('#check-updates').onclick=async()=>{const button=$('#check-updates');setBusy(button,true);try{await api('updates/check',{method:'POST',body:{}});toast('Update check queued. It will start within a minute.');}catch(error){toast(error.message);}finally{setBusy(button,false);await updateUpdateStatus();}};
     await updateUpdateStatus();
   }
@@ -232,6 +235,7 @@ let updateStatusTimer,updateStatusRequest=0;
 async function updateUpdateStatus(){
   clearTimeout(updateStatusTimer);
   const slot=$('#update-status'),version=state.route,request=++updateStatusRequest;if(!slot)return;
+  if(repairTerminal.active){updateStatusTimer=setTimeout(updateUpdateStatus,5000);return;}
   try{
     const status=await api('updates');if(request!==updateStatusRequest||version!==state.route||!slot.isConnected)return;
     const date=value=>value?new Date(value).toLocaleString():'Not yet';

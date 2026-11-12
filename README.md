@@ -202,6 +202,20 @@ agent runs as that same user; a narrow sudoers rule permits only starting and
 stopping that app service. The web application never receives root privileges.
 Starting the app at boot by itself does **not** install the update timer.
 
+On native Raspberry Pi/Linux system-service installations, administrators can
+also use **Settings → Updates → Repair automatic updates**. This opens a terminal
+inside the browser, including from a phone or another computer. Enter the Linux
+service user's **sudo password** in the masked field. The fixed repair installs
+and enables the boot timer, restarts the app and checks for new commits using
+the updater's normal CI, dependency preparation and rollback protections. The
+terminal reconnects after restarts and shows the result. It is not a general shell.
+The password is never stored, logged or echoed; HTTP does not encrypt it in
+transit, so use HTTPS on networks you do not trust. Sudo, util-linux (`script`)
+and systemd must be installed, and the service user must have sudo access.
+Services that prohibit privilege elevation and Docker containers cannot use
+this native repair; install their updater on the host with the commands above.
+An older installation must update and restart once to receive this button.
+
 If new code has already been pulled but the server still runs the old version,
 administrators see **Update available → Restart now**. The prompt waits until
 playback and other dialogs are closed. Restart requests go through the host
@@ -222,7 +236,9 @@ Private data and the previous dependencies are backed up outside the repository
 before installation. If startup fails, code, dependencies and data are restored;
 the failed commit is skipped until a newer one arrives. An interrupted update
 is recovered on the next timer run. The web app exchanges status and check
-requests through private files and never receives a Docker socket or shell access.
+requests through private files and never receives a Docker socket or unrestricted
+shell access. The optional native repair uses a fixed sudo-authorized helper in
+an independent, temporary system service; routine updates do not ask for a password.
 
 The agent runs as `watchlocal-update.timer` / `watchlocal-update.service` under
 your user account. For a user/Compose installation, inspect it with:

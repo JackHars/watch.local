@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { settingsStore, dataDirectory, publicUser, problem } from './settings.mjs';
 import { join } from 'node:path';
 import { createUpdateControl } from './updates.mjs';
+import { createUpdateRepair } from './update-repair.mjs';
 import { requireSession, sessionUser, requestOrigin, sameOrigin, lanWebUser, login, signOut, issueSession } from './sessions.mjs';
 import { initializeIPTV, browserPlay, browserLive, catalogStatus, refreshCatalog, refreshLive, liveStatus } from './iptv.mjs';
 import { saveTMDBCredential } from './tmdb.mjs';
@@ -11,6 +12,7 @@ import { sportsArtworkOrigins } from './sports.mjs';
 
 const activity = [], started = Date.now();
 const updates = createUpdateControl(join(dataDirectory, 'updates'));
+const repair = createUpdateRepair(join(dataDirectory, 'updates/repair'), { account: id => settingsStore.user(id) });
 const nativeStreams = new Map();
 export function recordActivity(event) { if (event.target === '/ui/activity') return; activity.push({ ...event, at: new Date().toISOString() }); if (activity.length > 200) activity.shift(); }
 const json = (res, status, data) => { if (res.destroyed) return; res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
@@ -39,6 +41,7 @@ const files = new Map([
   ['/live.mjs', ['../public/live.mjs','text/javascript']],
   ['/live-model.mjs', ['../public/live-model.mjs','text/javascript']],
   ['/updates.mjs', ['../public/updates.mjs','text/javascript']],
+  ['/update-repair.mjs', ['../public/update-repair.mjs','text/javascript']],
   ['/app.css', ['../public/app.css','text/css']], ['/app.js', ['../public/app.js','text/javascript']],
   ['/vendor/hls.js', ['../node_modules/hls.js/dist/hls.min.js','text/javascript']],
   ['/favicon.svg', ['../public/favicon.svg','image/svg+xml']],
@@ -62,6 +65,18 @@ export async function handleWeb(req, res) {
     if (path === '/ui/login' && req.method === 'POST') { const data = await body(req); return json(res, 200, { user: publicUser(login(req, res, data.username, data.password)), setupRequired: false }), true; }
     if (path === '/ui/logout' && req.method === 'POST') { signOut(req,res); return json(res,200,{ok:true}),true; }
     if (path === '/ui/session' && req.method === 'GET') { const user = sessionUser(req); return json(res,200,{ user: user ? publicUser(user) : null, name: settingsStore.config().server.name, lanAccess: Boolean(lanWebUser(req)), setupRequired: false }),true; }
+    const repairSession = /^\/ui\/updates\/repair\/([a-f0-9]{32})(\/password)?$/.exec(path);
+    if (repairSession) {
+      sameOrigin(req);
+      const [, id, password] = repairSession, token = req.headers['x-watchlocal-repair'];
+      // The read-only, per-job capability survives the app restart; it grants
+      // neither an admin login nor permission to start another operation.
+      if (req.method === 'GET' && !password) { json(res,200,await repair.status(id,token)); return true; }
+      const admin = requireSession(req,true);
+      if (req.method === 'POST' && password) { json(res,200,await repair.password(id,token,await body(req),admin)); return true; }
+      if (req.method === 'DELETE' && !password) { json(res,200,await repair.cancel(id,token,admin)); return true; }
+      throw problem(405,'Unsupported repair action.');
+    }
     const user = requireSession(req);
     if (path === '/ui/profiles' && req.method === 'GET') {
       json(res, 200, { profiles: await watchProgressStore.profiles(user.id) }); return true;
@@ -142,6 +157,12 @@ export async function handleWeb(req, res) {
       issueSession(res,changed); json(res,200,{user:publicUser(changed)}); return true;
     }
     requireSession(req,true);
+    if (path === '/ui/updates/repair' && req.method === 'GET') { json(res,200,await repair.availability()); return true; }
+    if (path === '/ui/updates/repair' && req.method === 'POST') {
+      const input = await body(req);
+      if (Object.keys(input).length) throw problem(400,'Repair takes no commands or options.');
+      json(res,202,await repair.start(user,dataDirectory)); return true;
+    }
     if (path === '/ui/updates' && req.method === 'GET') { json(res,200,await updates.status()); return true; }
     if (path === '/ui/updates/check' && req.method === 'POST') { await body(req); json(res,202,await updates.check()); return true; }
     if (path === '/ui/updates/restart' && req.method === 'POST') { await body(req); json(res,202,await updates.restart()); return true; }

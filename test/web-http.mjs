@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { randomBytes, createHash } from 'node:crypto';
+import { writeJSON } from '../scripts/update-runner.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -39,7 +41,7 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
    }
    return new Response('not found',{status:404});
   };
-  async function request(path,{cookie,method='GET',body,origin}={}){return fetch(base+path,{method,headers:{...(cookie?{cookie}:{}),...(body?{'content-type':'application/json'}:{}),...(origin?{origin}:{})},body:body?JSON.stringify(body):undefined});}
+  async function request(path,{cookie,method='GET',body,origin,headers={}}={}){return fetch(base+path,{method,headers:{...headers,...(cookie?{cookie}:{}),...(body?{'content-type':'application/json'}:{}),...(origin?{origin}:{})},body:body?JSON.stringify(body):undefined});}
   const home=await request('/');assert.equal(home.status,200);assert.match(home.headers.get('content-security-policy'),/frame-ancestors 'none'/);assert.match(await home.text(),/app.js/);
   assert.equal((await request('/vendor/hls.js')).status,200);assert.equal((await request('/ui/settings')).status,401);
   assert.equal((await request('/watch-progress.mjs')).status,200);
@@ -47,6 +49,9 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/profiles.mjs')).status,200);
   assert.equal((await request('/home.mjs')).status,200);
   assert.equal((await request('/updates.mjs')).status,200);
+  assert.equal((await request('/update-repair.mjs')).status,200);
+  assert.equal((await request('/ui/updates/repair')).status,401);
+  assert.equal((await request('/ui/updates/repair',{method:'POST',body:{}})).status,401);
   assert.match((await request('/health').then(r=>r.json())).revision,/^[a-f0-9]{40}$/);
   assert.equal((await request('/ui/profiles')).status,401);
   assert.equal((await request('/ui/playback.m3u8?type=movie&id=550')).status,401);
@@ -59,6 +64,17 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/ui/login',{method:'POST',body:{username:'owner',password:'password123'},origin:'https://evil.test'})).status,403);
   let r=await request('/ui/login',{method:'POST',body:{username:'owner',password:'password123'},origin:base});assert.equal(r.status,200);const admin=r.headers.get('set-cookie').split(';')[0];assert.match(r.headers.get('set-cookie'),/HttpOnly/);
   assert.equal((await request('/ui/session',{cookie:admin}).then(r=>r.json())).setupRequired,false);
+  assert.equal((await request('/ui/updates/repair',{cookie:admin,method:'POST',body:{command:'echo nope'}})).status,400);
+  assert.equal((await request('/ui/updates/repair',{cookie:admin,method:'POST',body:{},origin:'https://evil.test'})).status,403);
+  const repairId=randomBytes(16).toString('hex'),repairToken=randomBytes(32).toString('base64url');
+  const repairPath=`/ui/updates/repair/${repairId}`,repairHeaders={'X-Watchlocal-Repair':repairToken};
+  await writeJSON(join(directory,'updates/repair',repairId,'job.json'),{userId:owner.id,userVersion:settingsStore.user(owner.id).version,expires:Date.now()+60000,tokenHash:createHash('sha256').update(repairToken).digest('hex')});
+  await writeJSON(join(directory,'updates/repair',repairId,'status.json'),{state:'running',message:'Installing the timer',updatedAt:Date.now()});
+  assert.equal((await request(repairPath)).status,403);
+  assert.equal((await request(repairPath,{headers:repairHeaders,cookie:'watchlocal_session=expired'})).status,200);
+  assert.equal((await request(repairPath,{headers:repairHeaders,origin:'https://evil.test'})).status,403);
+  assert.equal((await request(repairPath+'/password',{headers:repairHeaders,method:'POST',body:{password:'fixture'}})).status,401);
+  assert.equal((await request(repairPath+'/password',{headers:repairHeaders,cookie:admin,origin:'https://evil.test',method:'POST',body:{password:'fixture'}})).status,403);
   assert.equal((await request('/ui/profiles',{cookie:admin,method:'POST',body:{name:'Guest',color:'#527de0'},origin:'https://evil.test'})).status,403);
   r=await request('/ui/profiles',{cookie:admin,method:'POST',body:{name:'Owner',color:'#527de0'}});assert.equal(r.status,201);const ownerProfile=(await r.json()).profile;
   assert.equal((await request('/ui/progress',{cookie:admin})).status,400);
@@ -107,6 +123,9 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/ui/updates',{cookie})).status,403);
   assert.equal((await request('/ui/updates/check',{cookie,method:'POST',body:{}})).status,403);
   assert.equal((await request('/ui/updates/restart',{cookie,method:'POST',body:{}})).status,403);
+  assert.equal((await request('/ui/updates/repair',{cookie,method:'POST',body:{}})).status,403);
+  assert.equal((await request('/ui/updates/repair',{cookie})).status,403);
+  assert.equal((await request(repairPath+'/password',{cookie,headers:repairHeaders,method:'POST',body:{password:'fixture'}})).status,403);
   assert.equal((await request('/ui/updates/check',{cookie:admin,method:'POST',body:{},origin:'https://evil.test'})).status,403);
   assert.equal((await request('/ui/updates/restart',{cookie:admin,method:'POST',body:{},origin:'https://evil.test'})).status,403);
   assert.equal((await request('/ui/updates/restart',{cookie:admin,method:'POST',body:{}})).status,409);
