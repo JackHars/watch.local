@@ -33,10 +33,10 @@ and the IPTV player must be able to reach it over the LAN.
 ## What the player receives
 
 Xtream clients get movie and series categories, movie details, complete
-season and episode listings, and scheduled sports events as Live TV channels.
-The M3U playlist includes sports events, catalog movies, and episodes of
+season and episode listings, ZLive TV channels, and scheduled sports events.
+The M3U playlist includes TV channels, sports events, catalog movies, and episodes of
 pinned series. It accepts only `output=m3u8`; MPEG-TS remuxing and MP4
-downloads are not implemented. A sports-only playlist appends `&content=live`
+downloads are not implemented. A live-only playlist appends `&content=live`
 to the printed M3U URL. A series-only playlist appends `&series_id=1396`,
 replacing `1396` with the series TMDB ID.
 
@@ -58,6 +58,17 @@ choose among available variants. Media links expire after 24 hours and are
 revoked when their user is changed, disabled, deleted, or expires;
 reopen the title to get fresh links.
 
+ZLive channels and sports events are independent providers, enabled by default
+under **Settings → Providers → Live TV**. No ZLive account, key, extra API service
+or FFmpeg installation is needed. ZLive's catalog refreshes hourly and its
+now/next guide every five minutes; cached listings survive an upstream outage.
+Channel IDs persist locally from `1000000001` upward, leaving existing sports IDs
+unchanged. Refresh your IPTV app after changing providers. ZLive's required
+headers accompany signing and media requests, and image-wrapped video is decoded
+by the server into MPEG-TS for browser, mobile and IPTV players. Playback depends
+on the upstream channel being available; listing a channel does not guarantee it
+will play.
+
 Sports events are read from external event pages. An event appears in the
 guide when scheduled; playback works only if its source has published an HLS
 feed. The server follows supported player or iframe links and forwards the
@@ -77,10 +88,10 @@ unavailable or the game has ended.
 | --- | --- |
 | `/player_api.php?username=...&password=...` | Xtream login, categories, listings, and details; GET or POST |
 | `/get.php?username=...&password=...&type=m3u_plus&output=m3u8` | M3U playlist |
-| `/xmltv.php?username=...&password=...` | Sports XMLTV guide |
+| `/xmltv.php?username=...&password=...` | Combined channel and sports XMLTV guide |
 | `/movie/USER/PASSWORD/ID.m3u8` | Movie playback |
 | `/series/USER/PASSWORD/EPISODE_ID.m3u8` | Episode playback |
-| `/live/USER/PASSWORD/EVENT_ID.m3u8` | Live sports playback |
+| `/live/USER/PASSWORD/STREAM_ID.m3u8` | Live channel or sports playback |
 
 The server also exposes JSON endpoints for catalog maintenance:
 
@@ -88,7 +99,12 @@ The server also exposes JSON endpoints for catalog maintenance:
 - `POST /iptv/library` with JSON `{"type":"movie","tmdb":603}` pins a movie;
   use `"type":"tv"` to pin a series for M3U episode inclusion.
 - `POST /iptv/refresh` starts a catalog refresh.
-- `POST /iptv/sports/refresh` starts a sports schedule refresh.
+- `POST /iptv/sports/refresh` starts a live-provider refresh (legacy route).
+
+The web panel uses `GET /ui/live` for combined channel/event cards and
+`POST /ui/live/refresh` to refresh both enabled live providers immediately.
+These web endpoints require a valid web session or permitted direct LAN access;
+the refresh must come from the same origin.
 
 Maintenance endpoints require a signed-in browser session. Mutations require an
 administrator and same-origin requests. The
@@ -184,7 +200,8 @@ untouched but are no longer used.
 settings, the signing secret, and pinned titles. Existing single-user files are
 migrated automatically with a one-time backup in `data/iptv.pre-users.json`.
 `data/catalog.json`, `data/metadata-cache.json`, `data/episodes.json`, and
-`data/sports.json` store the catalog and event caches. Keep `data/` if you
+`data/sports.json` store the catalog and event caches. `data/zlive.json` stores
+ZLive channel IDs, listings, and the now/next guide. Keep `data/` if you
 want to preserve the account and catalog across restarts. It is excluded
 from Git. No video library is stored.
 
@@ -208,7 +225,7 @@ be disabled, expired, demoted, or deleted.
 ## Checks
 
 Run `npm run check`, `npm run test:login`, `npm run test:catalog-import`,
-`npm run test:iptv-quality`, `npm run test:providers`, `npm run test:web`, `npm run test:metadata`, and `npm run test:sports` for offline checks.
+`npm run test:iptv-quality`, `npm run test:providers`, `npm run test:web`, `npm run test:metadata`, and `npm run test:live` for offline checks.
 With a populated catalog and running server, `npm run test:iptv-catalog`
 checks Xtream movie and series responses. It reads the local saved login;
 for a remote server, set `IPTV_BASE`, `IPTV_USERNAME`, and `IPTV_PASSWORD`.

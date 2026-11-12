@@ -4,7 +4,7 @@
 
 **A streaming app for your home network.**
 
-Movies, series, and live sports through an Xtream-compatible API and M3U playlists.
+Movies, series, TV channels, and live sports through an Xtream-compatible API and M3U playlists.
 
 ![Node.js 24+](https://img.shields.io/badge/Node.js-24%2B-339933?logo=nodedotjs&logoColor=white)
 ![Interface: Web + Terminal](https://img.shields.io/badge/Interface-Web_%2B_Terminal-2563eb)
@@ -29,7 +29,7 @@ a live request log.
 | --- | --- |
 | **Player compatibility** | Xtream-compatible login and M3U playlists |
 | **Movies and series** | Upstream listings, artwork, seasons, and episode details; optional TMDB fallback |
-| **Live sports** | Scheduled events, a sports-only playlist, and an XMLTV guide |
+| **Live TV** | ZLive channels and scheduled sports events, a live-only playlist, and an XMLTV guide |
 | **Provider fallback** | Cinejoy, Atlantic, Tvids, Zstream, Vidrift, and VidSrc |
 | **HLS playback** | Local stream relay, highest advertised video quality, and supported subtitles |
 | **Terminal dashboard** | Fixed connection panel with incoming requests and server activity below |
@@ -276,11 +276,13 @@ with the connected sources. [View the ten logo concepts](docs/branding/concepts.
   without a login can choose from the owner's profiles, each with separate
   history. Finished titles leave the row. This tracks the built-in web player;
   external IPTV apps manage their own playback history.
-- **Live:** Browse artwork cards for live and upcoming sports, filter by sport,
-  and see event times in your local timezone. Phones use full-width cards with
-  large watch buttons; larger screens show a grid. Event artwork loads lazily
-  from the sports sources, with a themed matchup card when an image is missing
-  or unavailable. Playback availability is checked when you open an event.
+- **Live TV:** Browse ZLive channels alongside live and upcoming sports. Switch
+  between TV channels and sports events, search by name, and filter by category.
+  Channel cards show now-playing information where available; events show local
+  start times and artwork. Phones use full-width cards with large watch buttons;
+  larger screens show a grid. Both live providers are enabled by default and can
+  be toggled separately in **Settings → Providers → Live TV**. ZLive needs no
+  API key or separate service. Playback availability is checked when you watch.
 - **Settings → IPTV connections:** Copy Xtream credentials, M3U playlists, and the
   XMLTV guide. Administrators can select any account; viewers see their own.
 - **Settings → Metadata:** Keep upstream providers as the default, optionally
@@ -310,7 +312,7 @@ browser cannot play. Keyboard focus and reduced-motion preferences are supported
 Once the server starts, the fixed connection panel displays:
 
 - Web interface and Xtream server addresses, username, and password
-- Full M3U playlist and sports-only playlist URLs
+- Full M3U playlist and Live TV playlist URLs
 - XMLTV guide URL and stream format
 
 Incoming requests and server activity appear below the panel. Request logs omit
@@ -338,8 +340,9 @@ also update the terminal’s connection panel.
 ### M3U and TV guide
 
 Copy the terminal's **M3U playlist** URL into your player's M3U URL field. For an
-EPG or TV guide, use the **XMLTV guide** URL. Use the **sports-only playlist** URL
-if you only want live events.
+EPG or TV guide, use the **XMLTV guide** URL. Use the **Live TV playlist** URL
+if you only want channels and live events. Refresh your IPTV app's provider
+after enabling or disabling a live source.
 
 Refresh the provider or playlist after changing the catalog. See the
 [IPTV connection and API reference](IPTV.md) for endpoints, playlist options,
@@ -448,13 +451,25 @@ Your IPTV app requests those local URLs; watch.local forwards the requests with 
 required headers and streams the returned bytes back. Supported subtitle tracks
 can also be attached. Videos are not saved as a local library.
 
-### 5. Resolve sports feeds separately
+### 5. Resolve live channels and sports separately
+
+The ZLive adapter imports its published channel list and now/next guide, then
+resolves a signed HLS stream when a channel is selected. Ticket requests,
+resolution and playback retain ZLive's required origin and referer headers.
+Some channel segments arrive inside PNG/WebP containers; watch.local decodes
+them into ordinary video on the server, including byte-range support for native
+players. A bounded cache shares decoded segments between viewers. This runs in
+Node.js, including on Raspberry Pi, without FFmpeg or another API process.
+
+Channel listings refresh hourly and the guide every five minutes. Persistent
+channel IDs keep IPTV favorites stable. Failed catalog refreshes retain cached
+listings, and alternate published sources are tried when resolution fails.
 
 The sports adapter follows published iframe or player links from event pages to
 find an HLS feed. It relays that feed using the source page's `Referer`, `Origin`,
 and browser-style User-Agent. A scheduled event remains unplayable until its
-source publishes a supported HLS link. The repository contains no permanent TV
-channels or video library.
+source publishes a supported HLS link. Channel availability also depends on
+ZLive's upstream hosts; the repository contains no broadcast files or video library.
 
 ## Configuration
 

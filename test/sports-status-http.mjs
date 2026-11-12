@@ -22,7 +22,7 @@ test('finished games leave Live and native mobile retrieves the same playback er
     async hls() { return { url: event.stream_url, headers: {} }; },
   };
   try {
-    await initializeIPTV({ sportsSource: source });
+    await initializeIPTV({ zliveSource: { async list() { return []; } }, sportsSource: source });
     const owner = settingsStore.user(settingsStore.get().ownerId);
     const profile = await watchProgressStore.createProfile(owner.id, { name: 'Viewer', color: '#527de0' });
     server = createServer(); server.listen(0, '127.0.0.1'); await once(server, 'listening');

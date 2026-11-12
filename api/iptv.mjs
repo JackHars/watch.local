@@ -11,13 +11,15 @@ import { collectCatalog, catalogPageLimit, MAX_CATALOG_PAGES } from './catalog.m
 import { metadataService } from './metadata.mjs';
 import { createSubtitleService, attachSubtitles, subtitlePlaylist, subtitleSegment } from './subtitles.mjs';
 import { highestQualityPlaylist } from './hls-quality.mjs';
-import { createSportsProvider } from './sports.mjs';
+import { createLiveProvider } from './live.mjs';
+import { createZliveRelay } from './zlive-media.mjs';
 import { sportsMediaURL } from './sports-playback.mjs';
 
 const dataDirectory = pathToFileURL(settingsDirectory + '/');
 const userContext = new AsyncLocalStorage();
 const currentUser = () => userContext.getStore()?.user || settingsStore.user(settingsStore.get()?.ownerId);
 const subtitles = createSubtitleService({ fetchResource: fetchUpstream });
+const zliveRelay = createZliveRelay({ fetchResource: (url, options) => fetchUpstream(url, 15000, options) });
 const DAY = 86400000;
 const image = (path, size = 'w500') => path ? `https://image.tmdb.org/t/p/${size}${path}` : '';
 const text = value => String(value ?? '').replace(/[\r\n\x00-\x1f]/g, ' ').trim();
@@ -32,8 +34,8 @@ let catalog = { movies: [], series: [], updatedAt: null, errors: [] };
 let episodeIndex = {};
 let options = { catalogPages: MAX_CATALOG_PAGES, refreshHours: 12 };
 let initialization;
-let sports;
-let sportsTimer;
+let liveTV;
+let liveTimer;
 let refreshPromise;
 let refreshProgress;
 let writeQueue = Promise.resolve();
@@ -66,8 +68,8 @@ export function initializeIPTV(config = {}) {
     catalog = await readJSON('catalog.json', catalog);
     metadataService.setSearchCatalog(catalog);
     episodeIndex = await readJSON('episodes.json', {});
-    sports = createSportsProvider({ directory: config.sportsDirectory || fileURLToPath(dataDirectory), source: config.sportsSource });
-    await sports.initialize();
+    liveTV = createLiveProvider({ directory: config.sportsDirectory || fileURLToPath(dataDirectory), sportsSource: config.sportsSource, zliveSource: config.zliveSource, getConfig: () => settingsStore.config().live });
+    await liveTV.initialize();
   })();
   return initialization;
 }
@@ -118,9 +120,9 @@ async function ensureCatalog() {
 }
 export function warmIPTV() {
   ensureCatalog().catch(error => console.warn('IPTV catalog:', error.message));
-  const warmSports = () => sports.ensure().catch(error => console.warn('IPTV sports:', error.message));
-  warmSports();
-  sportsTimer ||= setInterval(() => sports.refresh().catch(error => console.warn('IPTV sports:', error.message)), 60000).unref();
+  const warmLive = () => liveTV.ensure().catch(error => console.warn('Live TV:', error.message));
+  warmLive();
+  liveTimer ||= setInterval(() => liveTV.refresh().catch(error => console.warn('Live TV:', error.message)), 60000).unref();
 }
 
 function origin(req) {
@@ -265,11 +267,12 @@ async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders, l
   res.once('close', () => controller.abort());
   let reader;
   try {
-    // Resolve temporary sports URLs and key authorization on the server for
+    // Resolve temporary live URLs and key authorization on the server for
     // every request, including native players that cannot set custom headers.
-    const resource = live ? await sports.media(upstream, live) : null;
+    const resource = live ? await liveTV.media(upstream, live) : null;
     if (resource) upstream = resource.url;
     const headers = { ...upstreamHeaders, ...resource?.headers };
+    if (live?.provider === 'zlive' && /\/segment\.[a-z0-9]+$/i.test(req.url.split('?')[0])) return await zliveRelay(req, res, upstream, headers);
     for (const name of ['range', 'if-range']) if (req.headers[name]) headers[name] = req.headers[name];
     const response = await fetchUpstream(upstream, 120000, { method: req.method === 'HEAD' && !decorate ? 'HEAD' : 'GET', headers, signal: controller.signal });
     if (response.status === 416) {
@@ -373,8 +376,8 @@ async function buildPlaylist(params, base) {
   const rows = ['#EXTM3U'];
   const seriesId = params.get('series_id');
   if (!seriesId) {
-    const liveRows = await sports.rows(id => streamURL(base, 'live', id));
-    const liveCategories = new Map((await sports.categories()).map(c => [c.category_id, c.category_name]));
+    const liveRows = await liveTV.rows(id => streamURL(base, 'live', id));
+    const liveCategories = new Map((await liveTV.categories()).map(c => [c.category_id, c.category_name]));
     for (const item of liveRows) {
       rows.push(`#EXTINF:-1 tvg-id="${attr(item.epg_channel_id)}" tvg-name="${attr(item.name)}" tvg-logo="${attr(item.stream_icon)}" group-title="${attr(liveCategories.get(item.category_id))}",${text(item.name)}`);
       rows.push(item.direct_source);
@@ -404,9 +407,9 @@ async function playerAPI(params, base) {
     const server = new URL(base);
     return { user_info: { username: currentUser().username, password: currentUser().password, message: settings.config.server.name, auth: 1, status: 'Active', exp_date: currentUser().expiresAt ? String(Math.floor(Date.parse(currentUser().expiresAt)/1000)) : null, is_trial: '0', active_cons: '0', created_at: settings.createdAt, max_connections: '0', allowed_output_formats: ['m3u8'] }, server_info: { url: server.hostname, port: server.port || (server.protocol === 'https:' ? '443' : '80'), https_port: '443', server_protocol: server.protocol.slice(0, -1), rtmp_port: '0', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, timestamp_now: Math.floor(Date.now() / 1000), time_now: new Date().toISOString().replace('T', ' ').slice(0, 19), process: true } };
   }
-  if (action === 'get_live_categories') return sports.categories();
-  if (action === 'get_live_streams') return sports.rows(id => streamURL(base, 'live', id), params.get('category_id'));
-  if (['get_short_epg', 'get_simple_data_table', 'get_simple_date_table'].includes(action)) return sports.epg(params.get('stream_id'));
+  if (action === 'get_live_categories') return liveTV.categories();
+  if (action === 'get_live_streams') return liveTV.rows(id => streamURL(base, 'live', id), params.get('category_id'));
+  if (['get_short_epg', 'get_simple_data_table', 'get_simple_date_table'].includes(action)) return liveTV.epg(params.get('stream_id'));
   if (action === 'get_vod_categories') return categories('movie');
   if (action === 'get_series_categories') return categories('tv');
   if (['get_vod_streams', 'get_series', 'get_series_latest'].includes(action)) {
@@ -453,7 +456,7 @@ async function handleIPTVRequest(req, res) {
       manageOrigin(req); requireSession(req, true);
       if (req.method !== 'POST') throw new HttpError(405, 'Use POST.');
       if (!(req.headers['content-type'] || '').includes('application/json')) throw new HttpError(415, 'Use application/json.');
-      if (path === '/iptv/sports/refresh') { sports.refresh().catch(error => console.warn('IPTV sports:', error.message)); reply(req, res, 202, { refreshing: true }); return true; }
+      if (path === '/iptv/sports/refresh') { liveTV.refresh().catch(error => console.warn('Live TV:', error.message)); reply(req, res, 202, { refreshing: true }); return true; }
       if (path === '/iptv/refresh') { refreshCatalog().catch(error => console.warn('IPTV refresh:', error.message)); reply(req, res, 202, { refreshing: true }); return true; }
       const input = await requestBody(req);
       const type = input.type === 'tv' ? 'tv' : input.type === 'movie' ? 'movie' : null;
@@ -488,7 +491,7 @@ async function handleIPTVRequest(req, res) {
       if (!authorized(decodeURIComponent(stream[2]), decodeURIComponent(stream[3]))) throw new HttpError(401, 'Invalid IPTV username or password.');
       if (stream[5] !== 'm3u8') throw new HttpError(415, 'Select HLS / m3u8 as the stream format in your player.');
       if (stream[1] === 'live') {
-        const live = await sports.resolve(idNumber(stream[4]));
+        const live = await liveTV.resolve(idNumber(stream[4]));
         liveExpiry(stream[4]);
         await serveMedia(req, res, live.url, base, undefined, live.headers, live.playback); return true;
       }
@@ -500,7 +503,7 @@ async function handleIPTVRequest(req, res) {
       reply(req, res, 200, result);
     }
     else if (path === '/get.php') reply(req, res, 200, await buildPlaylist(params, base), 'audio/x-mpegurl; charset=utf-8');
-    else if (path === '/xmltv.php') reply(req, res, 200, await sports.xmltv(), 'application/xml; charset=utf-8');
+    else if (path === '/xmltv.php') reply(req, res, 200, await liveTV.xmltv(), 'application/xml; charset=utf-8');
     else throw new HttpError(404, 'IPTV route not found.');
   } catch (error) {
     if (res.headersSent) res.destroy();
@@ -515,9 +518,9 @@ export async function browserPlay(req, res, user, input) {
   return userContext.run({ user }, async () => {
     const base = origin(req);
     if (input.type === 'live') {
-      const live = await sports.resolve(idNumber(input.id), { fresh: Boolean(input.fresh) });
+      const live = await liveTV.resolve(idNumber(input.id), { fresh: Boolean(input.fresh) });
       liveExpiry(input.id);
-      return { url: assetURL(base, live.url, 'playlist', live.headers, live.playback ? { live: live.playback } : {}), provider: 'sports' };
+      return { url: assetURL(base, live.url, 'playlist', live.headers, live.playback ? { live: live.playback } : {}), provider: live.playback?.provider === 'zlive' ? 'zlive' : 'sports' };
     }
     const type = input.type === 'tv' ? 'series' : input.type === 'movie' ? 'movie' : null;
     if (!type) throw new HttpError(400, 'Choose a movie, episode, or live event.');
@@ -530,5 +533,7 @@ export async function browserPlay(req, res, user, input) {
     return { url: assetURL(base, resolved.master, 'playlist', resolved.headers, { vod: { kind, tmdb, season, episode } }), provider: resolved.provider, source: resolved.server };
   });
 }
-export async function browserSports() { await initializeIPTV(); return sports.browserRows(); }
+export async function browserLive() { await initializeIPTV(); return liveTV.browserRows(); }
+export async function refreshLive() { await initializeIPTV(); return liveTV.refresh({ force: true }); }
+export function liveStatus() { return liveTV?.status() || {}; }
 export function catalogStatus() { return { movies: catalog.movies.length, series: catalog.series.length, updatedAt: catalog.updatedAt, refreshing: Boolean(refreshPromise), progress: refreshProgress || null, errors: catalog.errors?.length || 0 }; }

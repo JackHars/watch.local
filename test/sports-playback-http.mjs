@@ -66,7 +66,7 @@ test('browser, native mobile and IPTV sports relay watch pages, player authoriza
       }
       assert.fail('Unexpected sports fixture request: ' + u.hostname);
     };
-    await initializeIPTV({ sportsDirectory:directory, sportsSource:createSportsSource({ hosts:['events.test'], fetchResource:(...args) => fetch(...args) }) });
+    await initializeIPTV({ zliveSource: { async list() { return []; } }, sportsDirectory:directory, sportsSource:createSportsSource({ hosts:['events.test'], fetchResource:(...args) => fetch(...args) }) });
     const login = settingsStore.get(), owner = settingsStore.user(login.ownerId);
     const profile = await watchProgressStore.createProfile(owner.id, { name:'Live sports', color:'#527de0' });
     server = createServer(); server.listen(0,'127.0.0.1'); await once(server,'listening');

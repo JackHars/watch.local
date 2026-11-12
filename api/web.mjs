@@ -3,7 +3,7 @@ import { settingsStore, dataDirectory, publicUser, problem } from './settings.mj
 import { join } from 'node:path';
 import { createUpdateControl } from './updates.mjs';
 import { requireSession, sessionUser, requestOrigin, sameOrigin, lanWebUser, login, signOut, issueSession } from './sessions.mjs';
-import { initializeIPTV, browserPlay, browserSports, catalogStatus, refreshCatalog } from './iptv.mjs';
+import { initializeIPTV, browserPlay, browserLive, catalogStatus, refreshCatalog, refreshLive, liveStatus } from './iptv.mjs';
 import { saveTMDBCredential } from './tmdb.mjs';
 import { getCatalogData } from './platform.mjs';
 import { watchProgressStore } from './watch-progress.mjs';
@@ -96,7 +96,8 @@ export async function handleWeb(req, res) {
       if (!/^[1-9]\d*$/.test(id||'') || !/^\d+$/.test(season)) throw problem(400,'Invalid title or season.');
       json(res,200,await getCatalogData(path === '/ui/episodes' ? `/tv/${id}/season/${season}` : `/${type}/${id}`, path === '/ui/title' ? {append_to_response:'credits'} : {})); return true;
     }
-    if (path === '/ui/live' && req.method === 'GET') { json(res,200,{items:await browserSports()}); return true; }
+    if (path === '/ui/live' && req.method === 'GET') { json(res,200,{items:await browserLive()}); return true; }
+    if (path === '/ui/live/refresh' && req.method === 'POST') { await refreshLive(); json(res,200,{items:await browserLive()}); return true; }
     // A media URL can be assigned and played during the original tap. Resolving
     // inside this request avoids losing iOS user activation to a JSON fetch.
     if (path === '/ui/playback.m3u8' && ['GET','HEAD'].includes(req.method)) {
@@ -142,7 +143,7 @@ export async function handleWeb(req, res) {
     if (path === '/ui/updates' && req.method === 'GET') { json(res,200,await updates.status()); return true; }
     if (path === '/ui/updates/check' && req.method === 'POST') { await body(req); json(res,202,await updates.check()); return true; }
     if (path === '/ui/settings' && req.method === 'GET') {
-      json(res,200,{config:settingsStore.publicConfig(),users:settingsStore.get().users.map(publicUser),ownerId:settingsStore.get().ownerId,catalog:catalogStatus(),uptime:Math.floor((Date.now()-started)/1000),running:req.watchlocalNetwork||{host:process.env.HOST||req.socket.localAddress,port:req.socket.localPort,webPort:req.socket.localPort,webPort80:false,webError:''}}); return true;
+      json(res,200,{config:settingsStore.publicConfig(),users:settingsStore.get().users.map(publicUser),ownerId:settingsStore.get().ownerId,catalog:catalogStatus(),live:liveStatus(),uptime:Math.floor((Date.now()-started)/1000),running:req.watchlocalNetwork||{host:process.env.HOST||req.socket.localAddress,port:req.socket.localPort,webPort:req.socket.localPort,webPort80:false,webError:''}}); return true;
     }
     if (path === '/ui/settings' && req.method === 'PUT') { await settingsStore.configure(await body(req)); json(res,200,{config:settingsStore.publicConfig()}); return true; }
     if (path === '/ui/tmdb' && req.method === 'PUT') { const input = await body(req); await saveTMDBCredential(input.credential); json(res,200,{configured:true}); return true; }

@@ -13,6 +13,7 @@ export const defaultConfig = () => ({
   server: { name: 'watch.local', host: '0.0.0.0', port: 8091, publicUrl: '', requireLanLogin: false, webPort80: false, mdns: true, mdnsHostname: 'watch' },
   playback: { order: [...providerNames], enabled: [...providerNames], providerTimeout: 30, totalTimeout: 180, cacheSeconds: 300, quality: 'highest' },
   catalog: { pages: 2000, refreshHours: 12 },
+  live: { sports: true, zlive: true },
   metadata: { tmdbCredential: '', tmdbFallback: false },
   updates: { enabled: false, intervalMinutes: 5 },
 });
@@ -25,7 +26,7 @@ export function validateLogin(username, password) {
   if (typeof password !== 'string' || !/^[\x21-\x7e]{8,128}$/.test(password)) throw problem(400, 'Use 8–128 printable characters without spaces for the password.');
 }
 function validateConfig(config) {
-  const { server, playback, catalog, metadata, updates } = config;
+  const { server, playback, catalog, metadata, updates, live } = config;
   const number = (value, min, max, label) => { if (!Number.isInteger(value) || value < min || value > max) throw problem(400, `${label} must be between ${min} and ${max}.`); };
   if (typeof server.name !== 'string' || !server.name.trim() || server.name.length > 64) throw problem(400, 'Server name must be 1–64 characters.');
   if (typeof server.host !== 'string' || !/^[a-zA-Z0-9.:[\]-]{1,253}$/.test(server.host)) throw problem(400, 'Enter a valid listen address.');
@@ -49,6 +50,7 @@ function validateConfig(config) {
   number(playback.cacheSeconds, 0, 1800, 'Cache time');
   if (!['highest', 'adaptive'].includes(playback.quality)) throw problem(400, 'Invalid quality preference.');
   number(catalog.pages, 1, 2000, 'Catalog pages'); number(catalog.refreshHours, 1, 168, 'Refresh interval');
+  if (typeof live.sports !== 'boolean' || typeof live.zlive !== 'boolean') throw problem(400, 'Invalid live TV provider setting.');
   if (typeof metadata.tmdbFallback !== 'boolean') throw problem(400, 'Invalid TMDB fallback setting.');
   if (metadata.tmdbFallback && !metadata.tmdbCredential) throw problem(400, 'Save a TMDB credential before enabling its fallback.');
   if (typeof updates.enabled !== 'boolean') throw problem(400, 'Invalid automatic update setting.');
@@ -80,6 +82,7 @@ export function createSettingsStore(directory) {
     if (legacy.iptv?.refreshHours) defaults.catalog.refreshHours = legacy.iptv.refreshHours;
     state.config ||= defaults; state.config.server = { ...defaults.server, ...state.config.server }; state.config.metadata = { ...defaults.metadata, ...state.config.metadata }; state.pinned ||= [];
     state.config.updates = { ...defaults.updates, ...state.config.updates };
+    state.config.live = { ...defaults.live, ...state.config.live };
     if (['FreeIPTV', 'FIPTV'].includes(state.config.server.name)) state.config.server.name = defaults.server.name;
     await save(state); return state;
   })();
@@ -105,7 +108,8 @@ export function createSettingsStore(directory) {
     async configure(config) {
       if ('metadata' in config && (!config.metadata || typeof config.metadata !== 'object' || Array.isArray(config.metadata) || Object.keys(config.metadata).some(key => key !== 'tmdbFallback'))) throw problem(400, 'Use Metadata settings to validate and save your TMDB credential.');
       if ('updates' in config && (!config.updates || typeof config.updates !== 'object' || Array.isArray(config.updates) || Object.keys(config.updates).some(key => !['enabled','intervalMinutes'].includes(key)))) throw problem(400, 'Invalid update settings.');
-      return mutate(next => { const merged = structuredClone(next.config); for (const section of ['server','playback','catalog','metadata','updates']) if (config[section]) merged[section] = { ...merged[section], ...config[section] }; validateConfig(merged); next.config = merged; });
+      if ('live' in config && (!config.live || typeof config.live !== 'object' || Array.isArray(config.live) || Object.keys(config.live).some(key => !['sports','zlive'].includes(key)))) throw problem(400, 'Invalid live TV provider settings.');
+      return mutate(next => { const merged = structuredClone(next.config); for (const section of ['server','playback','catalog','metadata','updates','live']) if (config[section]) merged[section] = { ...merged[section], ...config[section] }; validateConfig(merged); next.config = merged; });
     },
     async upsertUser(input, actor, id) {
       let result;
