@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { webcrypto as crypto } from 'node:crypto';
 import { settingsStore } from './settings.mjs';
+import { runningRevision } from './runtime-version.mjs';
 import { getMetadata } from './metadata.mjs';
 import { createProviderResolver, PROVIDERS, mediaHeaders } from './providers.mjs';
 
@@ -285,7 +286,7 @@ export async function handleApiRequest(req, res) {
 
     if (p === '/health') return sendJson(res, 200, {
       ok: true, wasm: wasmReady,
-      application: 'watchlocal', discovery: req.watchlocalNetwork?.discoveryConfig || null,
+      application: 'watchlocal', revision: runningRevision, discovery: req.watchlocalNetwork?.discoveryConfig || null,
       uptime_s: Math.floor((Date.now() - START) / 1000),
       cached_resolves: 'yes',
     });

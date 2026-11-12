@@ -174,12 +174,41 @@ sudo loginctl enable-linger "$USER"
 
 The Compose services default to `watchlocal,discovery`; use `--services` to
 specify different names. A native installation running as a **user systemd
-service** can use `--service watchlocal.service` instead of `--compose` and needs
-Node 24 or later. Docker hosts need Node 22 or later, Git, `flock`, systemd and
+service** uses `--service watchlocal.service`. A **system service** installed
+under `/etc/systemd/system` uses `--system-service`, as shown below. These are
+different service managers; the installer checks that the selected service
+starts this checkout. Native installs need Node 24 or later. Docker hosts need
+Node 22 or later, Git, `flock`, systemd and
 Docker Compose; candidate dependencies are installed using the app's Node image.
 The installer prints whether lingering still needs to be enabled. It keeps the
 timer running after logout and at boot. Then turn on **Automatic updates** in
 Settings. No GitHub credential or inbound webhook is required for a public repo.
+
+For a Raspberry Pi already running `watchlocal.service` as a system boot service,
+run this once from a fresh terminal (adjust the folder/service name if different):
+
+```sh
+cd "$HOME/watch.local" &&
+git pull --ff-only &&
+npm ci --ignore-scripts &&
+sudo node scripts/install-updater.mjs --system-service watchlocal.service --enable
+```
+
+This installs a separate system timer that runs after reboot and logout, enables
+automatic updates, and restarts the app once to load the repair. The app service
+must have a non-root `User` who owns its checkout, with `WorkingDirectory` set to
+that checkout. Use `--data /path/to/data` if it stores data elsewhere. The update
+agent runs as that same user; a narrow sudoers rule permits only starting and
+stopping that app service. The web application never receives root privileges.
+Starting the app at boot by itself does **not** install the update timer.
+
+If new code has already been pulled but the server still runs the old version,
+administrators see **Update available → Restart now**. The prompt waits until
+playback and other dialogs are closed. Restart requests go through the host
+agent, check CI, prepare dependencies, and retain rollback protection. **Later**
+dismisses the prompt; **Settings → Updates → Restart now** remains available.
+Settings shows both the installed commit and the commit loaded by the running
+process, and health checks verify the new revision before marking an update done.
 
 The host agent only follows the configured GitHub `origin` and fast-forwards
 `main`. It waits for the exact commit's `checks.yml` push workflow to succeed,
@@ -196,12 +225,16 @@ is recovered on the next timer run. The web app exchanges status and check
 requests through private files and never receives a Docker socket or shell access.
 
 The agent runs as `watchlocal-update.timer` / `watchlocal-update.service` under
-your user account. To inspect it:
+your user account. For a user/Compose installation, inspect it with:
 
 ```sh
 systemctl --user status watchlocal-update.timer
 journalctl --user -u watchlocal-update.service -n 50
 ```
+
+For a system-service installation, use `sudo systemctl status watchlocal-update.timer`
+and `sudo journalctl -u watchlocal-update.service -n 50` instead. No user lingering
+is needed for that system timer.
 
 Its host configuration, recovery runner and latest rollback backup live in
 `~/.local/state/watchlocal-updater` by default (`--state` chooses another location
@@ -214,7 +247,10 @@ and resolve the host service, disk-space or local-checkout issue before starting
 `watchlocal-update.service` again. The saved transaction is recovered before any
 new update is attempted. A commit that was rolled back is not retried by
 **Check now**; publish a corrected commit to `main` instead. To uninstall the
-schedule, run `systemctl --user disable --now watchlocal-update.timer`.
+schedule, run `systemctl --user disable --now watchlocal-update.timer`, or
+`sudo systemctl disable --now watchlocal-update.timer` for a system installation.
+The latter's narrow restart permission is in `/etc/sudoers.d/watchlocal-updater`;
+remove it too when uninstalling the system updater.
 
 ### Screenshots
 

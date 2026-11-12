@@ -38,6 +38,7 @@ const files = new Map([
   ['/home.mjs', ['../public/home.mjs','text/javascript']],
   ['/live.mjs', ['../public/live.mjs','text/javascript']],
   ['/live-model.mjs', ['../public/live-model.mjs','text/javascript']],
+  ['/updates.mjs', ['../public/updates.mjs','text/javascript']],
   ['/app.css', ['../public/app.css','text/css']], ['/app.js', ['../public/app.js','text/javascript']],
   ['/vendor/hls.js', ['../node_modules/hls.js/dist/hls.min.js','text/javascript']],
   ['/favicon.svg', ['../public/favicon.svg','image/svg+xml']],
@@ -143,6 +144,7 @@ export async function handleWeb(req, res) {
     requireSession(req,true);
     if (path === '/ui/updates' && req.method === 'GET') { json(res,200,await updates.status()); return true; }
     if (path === '/ui/updates/check' && req.method === 'POST') { await body(req); json(res,202,await updates.check()); return true; }
+    if (path === '/ui/updates/restart' && req.method === 'POST') { await body(req); json(res,202,await updates.restart()); return true; }
     if (path === '/ui/settings' && req.method === 'GET') {
       json(res,200,{config:settingsStore.publicConfig(),users:settingsStore.get().users.map(publicUser),ownerId:settingsStore.get().ownerId,catalog:catalogStatus(),live:liveStatus(),uptime:Math.floor((Date.now()-started)/1000),running:req.watchlocalNetwork||{host:process.env.HOST||req.socket.localAddress,port:req.socket.localPort,webPort:req.socket.localPort,webPort80:false,webError:''}}); return true;
     }

@@ -46,10 +46,13 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/mobile-player.mjs')).status,200);
   assert.equal((await request('/profiles.mjs')).status,200);
   assert.equal((await request('/home.mjs')).status,200);
+  assert.equal((await request('/updates.mjs')).status,200);
+  assert.match((await request('/health').then(r=>r.json())).revision,/^[a-f0-9]{40}$/);
   assert.equal((await request('/ui/profiles')).status,401);
   assert.equal((await request('/ui/playback.m3u8?type=movie&id=550')).status,401);
   assert.equal((await request('/ui/updates')).status,401);
   assert.equal((await request('/ui/updates/check',{method:'POST',body:{}})).status,401);
+  assert.equal((await request('/ui/updates/restart',{method:'POST',body:{}})).status,401);
   assert.equal((await request('/ui/profiles',{method:'POST',body:{name:'Guest',color:'#527de0'}})).status,401);
   assert.equal((await request('/ui/progress')).status,401);
   assert.equal((await request('/ui/progress',{method:'POST',body:{}})).status,401);
@@ -103,7 +106,10 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/ui/settings',{cookie})).status,403);
   assert.equal((await request('/ui/updates',{cookie})).status,403);
   assert.equal((await request('/ui/updates/check',{cookie,method:'POST',body:{}})).status,403);
+  assert.equal((await request('/ui/updates/restart',{cookie,method:'POST',body:{}})).status,403);
   assert.equal((await request('/ui/updates/check',{cookie:admin,method:'POST',body:{},origin:'https://evil.test'})).status,403);
+  assert.equal((await request('/ui/updates/restart',{cookie:admin,method:'POST',body:{},origin:'https://evil.test'})).status,403);
+  assert.equal((await request('/ui/updates/restart',{cookie:admin,method:'POST',body:{}})).status,409);
   assert.equal((await request('/ui/updates/check',{cookie:admin,method:'POST',body:{}})).status,503);
   assert.equal((await request('/ui/updates',{cookie:admin}).then(r=>r.json())).available,false);
   assert.equal((await request('/ui/settings',{cookie:admin,method:'PUT',body:{updates:{enabled:true,intervalMinutes:5}}})).status,200);
