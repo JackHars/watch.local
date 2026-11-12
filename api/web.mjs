@@ -37,6 +37,7 @@ const files = new Map([
   ['/preferences.mjs', ['../public/preferences.mjs','text/javascript']],
   ['/home.mjs', ['../public/home.mjs','text/javascript']],
   ['/live.mjs', ['../public/live.mjs','text/javascript']],
+  ['/live-model.mjs', ['../public/live-model.mjs','text/javascript']],
   ['/app.css', ['../public/app.css','text/css']], ['/app.js', ['../public/app.js','text/javascript']],
   ['/vendor/hls.js', ['../node_modules/hls.js/dist/hls.min.js','text/javascript']],
   ['/favicon.svg', ['../public/favicon.svg','image/svg+xml']],

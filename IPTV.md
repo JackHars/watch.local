@@ -69,6 +69,15 @@ by the server into MPEG-TS for browser, mobile and IPTV players. Playback depend
 on the upstream channel being available; listing a channel does not guarantee it
 will play.
 
+The channel lineup is grouped into Sports, News, Entertainment, Movies,
+Kids & Family, Documentaries, Comedy, Lifestyle, Music & Arts, and Motorsports.
+Xtream `stream_icon`, M3U `tvg-logo`, and XMLTV `<icon>` point to bundled
+broadcaster logos served by the IPTV listener. These image URLs require no
+credentials or external logo service. Regional and backup feeds retain their
+own channel IDs. Refresh your client's playlist and guide after updating to
+pick up the new categories and artwork. The web panel also offers country and
+sport filters; these extra facets do not create duplicate IPTV channels.
+
 Sports events are read from external event pages. An event appears in the
 guide when scheduled; playback works only if its source has published an HLS
 feed. The server follows supported player or iframe links and forwards the

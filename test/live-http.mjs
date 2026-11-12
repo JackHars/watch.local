@@ -5,7 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
-import { channel, wrappedVideo, video } from './zlive-fixtures.mjs';
+import { channel as fixtureChannel, wrappedVideo, video } from './zlive-fixtures.mjs';
 import { zliveHeaders } from '../api/zlive-resolver.mjs';
 
 test('ZLive and sports share browser/native/Xtream/M3U/EPG routes, decoding only channel video', async () => {
@@ -14,6 +14,7 @@ test('ZLive and sports share browser/native/Xtream/M3U/EPG routes, decoding only
   const { initializeIPTV } = await import('../api/iptv.mjs');
   const { createServer } = await import('../server.mjs');
   const { settingsStore } = await import('../api/settings.mjs');
+  const channel = { ...fixtureChannel, key: 'auto-cnn', name: 'CNN', group: 'Other' };
   const now = Math.floor(Date.now() / 1000);
   const headersSeen = [], requests = [];
   let downloads = 0, resolutions = 0, catalogs = 0, server;
@@ -63,8 +64,17 @@ test('ZLive and sports share browser/native/Xtream/M3U/EPG routes, decoding only
     assert.match(xml, /Now &amp; Next/); assert.match(xml, /A &lt;programme&gt;/);
     const playlist = await fetch(base + '/get.php?' + auth + '&content=live').then(r => r.text());
     assert.ok(playlist.includes(tv.direct_source)); assert.ok(playlist.includes(sport.direct_source));
-    assert.match(playlist, /group-title="ZLive · Entertainment"/);
+    assert.match(playlist, /group-title="News"/);
+    assert.ok(playlist.includes('tvg-logo="' + tv.stream_icon + '"'));
 
+    assert.ok(tv.stream_icon.startsWith(base + '/channel-artwork/'));
+    assert.ok(xml.includes('<icon src="' + tv.stream_icon + '"'));
+    const art = await fetch(tv.stream_icon); assert.equal(art.status, 200); assert.equal(art.headers.get('content-type'), 'image/png');
+    assert.deepEqual(Buffer.from(await art.arrayBuffer()).subarray(0,8), Buffer.from('89504e470d0a1a0a','hex'));
+    assert.equal((await fetch(tv.stream_icon, { headers: { 'If-None-Match': art.headers.get('etag') } })).status, 304);
+    assert.equal((await fetch(tv.stream_icon, { method: 'HEAD' })).headers.get('content-length'), art.headers.get('content-length'));
+    assert.equal((await fetch(base + '/channel-artwork/missing.png')).status, 404);
+    assert.equal((await fetch(tv.stream_icon, { method: 'POST' })).status, 405);
     const master = await fetch(tv.direct_source).then(r => r.text());
     assert.match(master, /^#EXTM3U/); assert.doesNotMatch(master, /ENDLIST/);
     const segment = master.split('\n').find(l => l.startsWith('http'));

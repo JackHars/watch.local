@@ -31,8 +31,8 @@ export function createLiveProvider({ directory, sportsSource, zliveSource, getCo
     epg: id => requireProvider(providerFor(id)).epg(id),
     resolve: (id, options) => requireProvider(providerFor(id)).resolve(id, options),
     media: (url, context) => requireProvider(context.provider === 'zlive' ? 'zlive' : 'sports').media(url, context),
-    async xmltv() {
-      const docs = await gather('xmltv');
+    async xmltv(base) {
+      const docs = await gather('xmltv', base);
       // XMLTV requires every channel declaration before the programmes, even
       // when the guide combines documents from independent providers.
       const channels = docs.flatMap(doc => doc.match(/<channel\b[^>]*>[\s\S]*?<\/channel>/g) || []);

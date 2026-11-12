@@ -29,7 +29,7 @@ a live request log.
 | --- | --- |
 | **Player compatibility** | Xtream-compatible login and M3U playlists |
 | **Movies and series** | Upstream listings, artwork, seasons, and episode details; optional TMDB fallback |
-| **Live TV** | ZLive channels and scheduled sports events, a live-only playlist, and an XMLTV guide |
+| **Live TV** | Branded channel cards, genre/country/sport filters, live sports, IPTV playlists, and an XMLTV guide |
 | **Provider fallback** | Cinejoy, Atlantic, Tvids, Zstream, Vidrift, and VidSrc |
 | **HLS playback** | Local stream relay, highest advertised video quality, and supported subtitles |
 | **Terminal dashboard** | Fixed connection panel with incoming requests and server activity below |
@@ -224,7 +224,7 @@ schedule, run `systemctl --user disable --now watchlocal-update.timer`.
 <table>
   <tr>
     <td width="50%" align="center"><img src="docs/screenshots/home-mobile.png" alt="watch.local mobile Home with full-screen artwork and floating glass navigation" width="320"><br>Home on mobile</td>
-    <td width="50%" align="center"><img src="docs/screenshots/live-mobile.png" alt="watch.local mobile Live with complete sport filters and event artwork" width="320"><br>Live on mobile</td>
+    <td width="50%" align="center"><img src="docs/screenshots/live-mobile.png" alt="watch.local mobile Live TV with compact filters, channel logos, and genre shelves" width="320"><br>Live TV on mobile</td>
   </tr>
 </table>
 <details>
@@ -276,11 +276,15 @@ with the connected sources. [View the ten logo concepts](docs/branding/concepts.
   without a login can choose from the owner's profiles, each with separate
   history. Finished titles leave the row. This tracks the built-in web player;
   external IPTV apps manage their own playback history.
-- **Live TV:** Browse ZLive channels alongside live and upcoming sports. Switch
-  between TV channels and sports events, search by name, and filter by category.
-  Channel cards show now-playing information where available; events show local
-  start times and artwork. Phones use full-width cards with large watch buttons;
-  larger screens show a grid. Both live providers are enabled by default and can
+- **Live TV:** Discover channel shelves or browse the complete lineup. Genres
+  include Sports, News, Entertainment, Movies, Kids & Family, Documentaries,
+  Comedy, Lifestyle, Music & Arts, and Motorsports. Search channels and current
+  programmes, then narrow by country or sport. Compact channel cards show local
+  broadcaster artwork, region, quality, and now-playing information where available.
+  **All channels** includes regional and backup feeds; **Show more** reveals the
+  rest of a large lineup. **Live sports** keeps scheduled events easy to find,
+  with event artwork, local start times, and full-width watch buttons on phones.
+  Both live providers are enabled by default and can
   be toggled separately in **Settings → Providers → Live TV**. ZLive needs no
   API key or separate service. Playback availability is checked when you watch.
 - **Settings → IPTV connections:** Copy Xtream credentials, M3U playlists, and the
@@ -464,6 +468,13 @@ Node.js, including on Raspberry Pi, without FFmpeg or another API process.
 Channel listings refresh hourly and the guide every five minutes. Persistent
 channel IDs keep IPTV favorites stable. Failed catalog refreshes retain cached
 listings, and alternate published sources are tried when resolution fails.
+
+Curated broadcaster identities and bundled PNG logos enrich the published lineup
+without another account or runtime image service. The same genres and artwork
+are exported in Xtream, M3U, and XMLTV. Unknown new channels remain accessible
+with a generated text card until their identity is added. Artwork sources and
+checksums are recorded in [docs/channel-artwork.json](docs/channel-artwork.json);
+see [third-party notices](THIRD_PARTY_NOTICES.md) for attribution.
 
 The sports adapter follows published iframe or player links from event pages to
 find an HLS feed. It relays that feed using the source page's `Referer`, `Origin`,

@@ -2,13 +2,14 @@ import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { resolveZlive, zliveHeaders, zliveOrigin } from './zlive-resolver.mjs';
 import { xml } from './sports.mjs';
+import { channelCategories, channelMetadata, channelArtwork } from './channel-metadata.mjs';
 
 export const ZLIVE_ID_BASE = 1000000000;
 const groups = ['Entertainment', 'Sports', 'F1', 'Kids', 'Other'];
 const problem = (status, message) => Object.assign(new Error(message), { status });
 const keyOK = key => typeof key === 'string' && /^[a-zA-Z0-9_-]{1,200}$/.test(key);
 const clean = value => String(value || '').replace(/[\x00-\x1f]/g, ' ').trim().slice(0, 300);
-const category = channel => String(2000 + groups.indexOf(channel.group));
+const category = channel => channelMetadata(channel).category_id;
 const channelID = channel => `zlive-${channel.key}`;
 const xmlDate = seconds => new Date(seconds * 1000).toISOString().slice(0, 19).replace(/[-:T]/g, '') + ' +0000';
 const localDate = seconds => {
@@ -35,7 +36,7 @@ export function createZliveSource({ fetchResource = fetch, resolve = resolveZliv
         const sources = [...new Set((row.sources || []).map(s => s.key).filter(keyOK))];
         if (!keyOK(row.id) || !clean(row.name) || !sources.length) continue;
         channels.set(row.id, { key: row.id, name: clean(row.name), group: groups.includes(row.sport) ? row.sport : 'Other',
-          quality: clean(row.quality), region: clean(row.region), live: row.live !== false,
+          quality: clean(row.quality), region: clean(row.region), flag: clean(row.flag), live: row.live !== false,
           accent: /^#[\da-f]{6}$/i.test(row.accent) ? row.accent : '#648bd9', sources: sources.slice(0, 8) });
       }
       if (!channels.size) throw problem(502, 'ZLive returned an invalid channel catalog.');
@@ -122,18 +123,21 @@ export function createZliveProvider({ directory, source = createZliveSource(), n
     status: () => ({ channels: state.channels.length, updatedAt: state.updatedAt || null, refreshing: Boolean(refreshing), error }),
     async categories() {
       const rows = await ensure();
-      return groups.filter(group => rows.some(c => c.group === group)).map(group => ({ category_id: String(2000 + groups.indexOf(group)), category_name: `ZLive · ${group}`, parent_id: 0 }));
+      const present = new Set(rows.map(category));
+      return channelCategories.filter(c => present.has(c.iptv)).map(c => ({ category_id: c.iptv, category_name: c.name, parent_id: 0 }));
     },
     async rows(makeURL, filter) {
-      return (await ensure()).filter(c => !filter || filter === 'all' || category(c) === filter).map((c, i) => ({ num: i + 1, name: c.name, stream_type: 'live', stream_id: c.id,
-        stream_icon: '', epg_channel_id: channelID(c), added: String(Math.floor(state.updatedAt / 1000)), category_id: category(c), custom_sid: '',
+      return (await ensure()).filter(c => !filter || filter === 'all' || category(c) === filter).map((c, i) => ({ num: i + 1, name: channelMetadata(c).title, stream_type: 'live', stream_id: c.id,
+        stream_icon: channelArtwork(c, makeURL(c.id)), epg_channel_id: channelID(c), added: String(Math.floor(state.updatedAt / 1000)), category_id: category(c), custom_sid: '',
         tv_archive: 0, tv_archive_duration: 0, direct_source: makeURL(c.id), container_extension: 'm3u8' }));
     },
     async browserRows() {
       return (await ensure()).map(c => {
         const current = programs(c).find(p => p.start <= now() / 1000 && p.stop > now() / 1000);
-        return { stream_id: c.id, name: c.name, title: c.name, provider: 'zlive', kind: 'channel', category_id: `zlive-${c.group.toLowerCase()}`,
-          category_name: c.group === 'F1' ? 'Formula 1' : c.group, artwork: '', accent: c.accent, quality: c.quality, region: c.region,
+        const meta = channelMetadata(c);
+        return { stream_id: c.id, name: meta.title, title: meta.title, search_name: c.name, provider: 'zlive', kind: 'channel', category_id: `tv-${meta.category}`,
+          category: meta.category, category_name: meta.category_name, artwork: channelArtwork(c), artwork_kind: 'logo', white_logo: meta.white_logo, logo_plate: meta.logo_plate,
+          accent: meta.accent, quality: c.quality, region: meta.region, country: meta.country, topics: meta.topics,
           starts_at: current?.start || 0, ends_at: current?.stop || 0, always_live: true, status: c.live ? 'LIVE' : 'UNKNOWN', program: current?.title || '' };
       }).sort((a, b) => a.title.localeCompare(b.title));
     },
@@ -144,12 +148,12 @@ export function createZliveProvider({ directory, source = createZliveSource(), n
         start: localDate(p.start), end: localDate(p.stop), start_timestamp: String(p.start), stop_timestamp: String(p.stop),
         now_playing: p.start <= now() / 1000 && p.stop > now() / 1000 ? 1 : 0, has_archive: 0 })) : [] };
     },
-    async xmltv() {
+    async xmltv(base) {
       const rows = ['<?xml version="1.0" encoding="UTF-8"?><tv generator-info-name="watch.local">'];
       const channels = await ensure();
-      for (const channel of channels) rows.push(`<channel id="${xml(channelID(channel))}"><display-name>${xml(channel.name)}</display-name></channel>`);
+      for (const channel of channels) rows.push(`<channel id="${xml(channelID(channel))}"><display-name>${xml(channelMetadata(channel).title)}</display-name>${channelArtwork(channel, base) ? `<icon src="${xml(channelArtwork(channel, base))}"/>` : ''}</channel>`);
       for (const channel of channels) {
-        for (const p of programs(channel)) rows.push(`<programme start="${xmlDate(p.start)}" stop="${xmlDate(p.stop)}" channel="${xml(channelID(channel))}"><title>${xml(p.title)}</title><desc>${xml(p.description)}</desc><category>${xml(channel.group)}</category></programme>`);
+        for (const p of programs(channel)) rows.push(`<programme start="${xmlDate(p.start)}" stop="${xmlDate(p.stop)}" channel="${xml(channelID(channel))}"><title>${xml(p.title)}</title><desc>${xml(p.description)}</desc><category>${xml(channelMetadata(channel).category_name)}</category></programme>`);
       }
       return rows.concat('</tv>', '').join('\n');
     },

@@ -503,7 +503,7 @@ async function handleIPTVRequest(req, res) {
       reply(req, res, 200, result);
     }
     else if (path === '/get.php') reply(req, res, 200, await buildPlaylist(params, base), 'audio/x-mpegurl; charset=utf-8');
-    else if (path === '/xmltv.php') reply(req, res, 200, await liveTV.xmltv(), 'application/xml; charset=utf-8');
+    else if (path === '/xmltv.php') reply(req, res, 200, await liveTV.xmltv(base), 'application/xml; charset=utf-8');
     else throw new HttpError(404, 'IPTV route not found.');
   } catch (error) {
     if (res.headersSent) res.destroy();

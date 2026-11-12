@@ -4,6 +4,7 @@ import { handleApiRequest } from './api/platform.mjs';
 import { handleWeb, recordActivity } from './api/web.mjs';
 import { requireSession, sameOrigin, requestOrigin } from './api/sessions.mjs';
 import { initializeIPTV, handleIPTV } from './api/iptv.mjs';
+import { handleChannelArtwork } from './api/channel-artwork.mjs';
 
 const routes = new Set(['api', 'health', 'providers', 'servers', 'search', 'browse', 'title', 'episodes', 'images', 'resolve', 'master', 'watch', 'proxy']);
 
@@ -45,6 +46,7 @@ export function createServer({ onRequest, mode = 'combined', network } = {}) {
     try {
       const request = new URL(req.url, 'http://local');
       const listener = typeof mode === 'function' ? mode() : mode;
+      if (await handleChannelArtwork(req, res)) return;
       if (listener === 'iptv' && request.pathname === '/' && ['GET','HEAD'].includes(req.method)) {
         const target = new URL(requestOrigin(req)); target.port = String(network.webPort);
         res.writeHead(307, { Location: target.origin + '/', 'Cache-Control': 'no-store' });

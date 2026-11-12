@@ -27,3 +27,20 @@ its original authors; this notice does not assign it the application's license.
 container formats, allowing native HLS clients to consume the resulting video.
 Channel metadata and programme information come from ZLive at runtime; no
 channel recordings, private session tickets or resolved stream URLs are bundled.
+
+# Broadcaster artwork
+
+`public/channel-logos/` contains original broadcaster PNG logos sourced from
+[tv-logo/tv-logos](https://github.com/tv-logo/tv-logos), public image references in
+the [iptv-org channel database](https://github.com/iptv-org/database), and the
+[MotoGP](https://www.motogp.com/en) and [DIRTVision](https://app.dirtvision.com/)
+websites. The database is published under the Unlicense. Broadcaster logos and
+trademarks remain the property of their respective owners; the application's
+license does not claim ownership of them.
+
+[docs/channel-artwork.json](docs/channel-artwork.json) records each image's
+original URL and SHA-256 checksum. Images are bundled unchanged for reliable
+local display, including in IPTV clients. Category and country assignments in
+`api/channel-directory.json` are curated locally with broadcaster identities
+cross-checked against the public channel database. A shared network logo is used
+for some regional or alternate feeds; names and countries distinguish them.
