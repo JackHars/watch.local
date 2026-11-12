@@ -74,7 +74,7 @@ test('transient renewal failure preserves valid media, expired sessions reauthor
 });
 
 test('StreamFree uses the published HLS configuration, renews it, and relays its MPEG-TS CDN fallback', async () => {
-  let clock = time, requests = 0;
+  let clock = time, requests = 0, cdnDown = false;
   const player = 'https://sports-player.test/embed/basketball/team-a-vs-team-b1080p';
   const page = () => `<script>
     const QUALITY = '1080p'; const SOURCE_SUFFIX = ''; const VARIANT = 'team-a-vs-team-b' + QUALITY + SOURCE_SUFFIX;
@@ -85,11 +85,13 @@ test('StreamFree uses the published HLS configuration, renews it, and relays its
   const service = createSportsPlayback({ now: () => clock, request: async url => {
     if (url === player) return { text: page() };
     if (url.endsWith('/get-stream-key/team-a-vs-team-b')) { requests++; return { text: JSON.stringify({ server_name: 'externalcdn', is_external: false }) }; }
-    assert.ok(url.startsWith('https://sports-player.test/live-externalcdn/team-a-vs-team-b1080p/index.m3u8?'));
+    assert.match(url, /^https:\/\/sports-player.test\/(live-cdn|live)\/team-a-vs-team-b1080p\/index.m3u8\?/);
+    if (cdnDown && url.includes('/live-cdn/')) throw Error('CDN unavailable');
     return { text: '#EXTM3U\n#EXTINF:4,\nsegment.ts\n' };
   } });
   const stream = await service.resolve(page(), player, referer);
   assert.equal(stream.playback.provider, 'streamfree');
+  assert.equal(new URL(stream.url).pathname,'/live-cdn/team-a-vs-team-b1080p/index.m3u8');
   assert.equal(new URL(stream.url).searchParams.get('_t'), 'fixture-token-0');
   const fallback = 'https://cdn.sports-player.test/live/team-a/segment.js';
   const original = 'https://image-cdn.test/frame.webp#sf=' + encodeURIComponent(fallback);
@@ -104,4 +106,8 @@ test('StreamFree uses the published HLS configuration, renews it, and relays its
   assert.equal(new URL(renewed[0].url).searchParams.get('_t'), 'fixture-token-1');
   assert.equal(renewed[1].url, fallback);
   await assert.rejects(service.media('https://image-cdn.test/frame.webp#sf=' + encodeURIComponent('file:///etc/passwd'), stream.playback), /Invalid sports media URL/);
+  cdnDown = true;
+  const retried = await service.resolve(page(),player,referer);
+  assert.equal(new URL(retried.url).pathname,'/live/team-a-vs-team-b1080p/index.m3u8');
+  assert.equal(requests,3,'A fresh player lookup must recheck availability instead of retaining a failing cached CDN');
 });

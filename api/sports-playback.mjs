@@ -28,7 +28,7 @@ export function createSportsPlayback({ request, now = Date.now }) {
       item = { value: null, pending: null, renewAt: 0 }; streamFree.set(player, item);
       while (streamFree.size > 100) streamFree.delete(streamFree.keys().next().value);
     }
-    if (item.value && now() < item.renewAt) return item.value;
+    if (item.value && now() < item.renewAt && !page) return item.value;
     if (item.pending) return item.pending;
     item.pending = (async () => {
       page ??= (await request(player, player)).text;
@@ -41,14 +41,24 @@ export function createSportsPlayback({ request, now = Date.now }) {
       const signed = page.match(/\bconst\s+_0x\s*=\s*(\{[^\n]+\})\s*;/)?.[1];
       const params = signed ? JSON.parse(signed)[quality] : null;
       const data = JSON.parse((await request(new URL(endpoint, player).href, player)).text);
-      const prefix = data.server_name === 'externalcdn' ? '/live-externalcdn/' : data.server_name && data.server_name !== 'origin' ? '/live-cdn/' : '/live/';
-      const url = new URL(httpURL(data.is_external && data.external_url ? data.external_url : `${prefix}${slug}${quality}${suffix}/index.m3u8`, player));
-      if (!data.is_external) for (const key of ['_t', '_e', '_n']) if (params?.[key] != null) url.searchParams.set(key, String(params[key]));
-      const manifest = await request(url.href, player);
-      if (!manifest.text.trimStart().startsWith('#EXTM3U')) throw problem('The sports source did not return an HLS playlist.');
-      item.value = { url: url.href, headers: headersFor(player), playback: { provider: 'streamfree', player, root: url.href } };
-      item.renewAt = Math.min(now() + 1800000, params?._e ? Number(params._e) * 1000 - 60000 : Infinity);
-      return item.value;
+      // Prefer the provider's direct CDN: its external-CDN playlist can lag
+      // behind and advertise fallback segments that have already been removed.
+      const paths = data.is_external && data.external_url ? [data.external_url] :
+        (data.server_name === 'externalcdn' ? ['/live-cdn/', '/live/', '/live-externalcdn/'] : data.server_name && data.server_name !== 'origin' ? ['/live-cdn/', '/live/'] : ['/live/'])
+          .map(prefix => `${prefix}${slug}${quality}${suffix}/index.m3u8`);
+      let last;
+      for (const path of paths) {
+        try {
+          const url = new URL(httpURL(path, player));
+          if (!data.is_external) for (const key of ['_t', '_e', '_n']) if (params?.[key] != null) url.searchParams.set(key, String(params[key]));
+          const manifest = await request(url.href, player);
+          if (!manifest.text.trimStart().startsWith('#EXTM3U')) throw problem('The sports source did not return an HLS playlist.');
+          item.value = { url: url.href, headers: headersFor(player), playback: { provider: 'streamfree', player, root: url.href } };
+          item.renewAt = Math.min(now() + 1800000, params?._e ? Number(params._e) * 1000 - 60000 : Infinity);
+          return item.value;
+        } catch (error) { last = error; }
+      }
+      throw last;
     })().finally(() => { item.pending = null; });
     return item.pending;
   }
