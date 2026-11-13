@@ -30,7 +30,7 @@ a live request log.
 | **Player compatibility** | Xtream-compatible login and M3U playlists |
 | **Movies and series** | Upstream listings, artwork, seasons, and episode details; optional TMDB fallback |
 | **Live TV** | Branded channel cards, genre/country/sport filters, live sports, IPTV playlists, and an XMLTV guide |
-| **Provider fallback** | Cinejoy, Atlantic, Tvids, Zstream, Vidrift, and VidSrc |
+| **Provider fallback** | Cinejoy, Atlantic, Tvids, Zstream, Vidrift, VidSrc, and Reelix |
 | **Sports fallback** | Automatically tries Strmfree for the same event if the primary sports feed fails |
 | **HLS playback** | Local stream relay, highest advertised video quality, and supported subtitles |
 | **Terminal dashboard** | Fixed connection panel with incoming requests and server activity below |
@@ -483,6 +483,7 @@ default order; change it in **Settings → Providers**:
 | 4 | **Zstream** | Calls the shared Cinecat / P-Stream scraper and selects a working HLS source with its supplied playback headers. |
 | 5 | **Vidrift** | Gets a playback token from the 7movies family, loads Vidrift's boot response, and tries its Bigbang and Vexon HLS sources. |
 | 6 | **VidSrc** | Looks up the IMDb ID through the metadata layer, follows the gate/player chain, extracts rotating key tables from the supplied WASM, decrypts the URL list with ChaCha20, and obtains a media-host token. |
+| 7 | **Reelix / VidCore** | Uses the exact TMDB movie or episode ID at `vidcore.io`, completes the player session exchange, decrypts its source replies, and checks the HLS playlist and video before selecting a feed. Origin catalog: `reelix.ac`. |
 
 Series requests include season and episode numbers. Failed providers are skipped;
 successful resolutions are cached for five minutes by default. Default attempts
@@ -491,8 +492,12 @@ are configurable in the web settings. Availability varies
 by title and provider. Direct MP4-only results are skipped because this server
 serves HLS to IPTV players.
 
-All six adapters run inside the existing Node.js process. The new adapters were
-ported from Red Hermes' October 25, 2026 research using Node's built-in crypto.
+All seven adapters run inside the existing Node.js process using Node's built-in
+crypto. Reelix uses the public player parameters fetched at runtime; no browser,
+separate API service, account, or API credential is required. Upgrades append it
+to the saved fallback order while preserving existing disabled providers.
+Changing a provider's player protocol can temporarily make that provider
+unavailable; failed attempts continue through the configured fallback order.
 
 VidSrc needs an IMDb ID. Upstream movie details normally include one; missing
 mappings are read from the title's public TMDB structured data without an API key.

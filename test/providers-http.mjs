@@ -64,7 +64,7 @@ test('movie playback and legacy API relay keep provider headers on nested HLS, a
     const base = `http://127.0.0.1:${server.address().port}`;
     const signedIn = await fetchOriginal(base + '/ui/login', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:login.username,password:login.password})});
     apiCookie = signedIn.headers.get('set-cookie').split(';')[0];
-    assert.equal((await fetch(base + '/providers').then(r => r.json())).providers.length, 6);
+    assert.equal((await fetch(base + '/providers').then(r => r.json())).providers.length, 7);
     for (const path of ['/resolve?tmdb=550&provider=missing', '/resolve?tmdb=550&kind=series']) assert.equal((await fetch(base + path)).status, 400);
     const r = await fetch(base + `/movie/${encodeURIComponent(login.username)}/${encodeURIComponent(login.password)}/550.m3u8`);
     assert.equal(r.status, 200); const master = await r.text();

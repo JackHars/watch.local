@@ -6,8 +6,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validLocalName } from './discovery.mjs';
 import { environment } from './environment.mjs';
+import { PROVIDERS } from './providers.mjs';
 
-export const providerNames = ['cinejoy', 'atlantic', 'tvids', 'zstream', 'vidrift', 'vidsrc'];
+export const providerNames = PROVIDERS;
 export const dataDirectory = environment('DATA_DIR') || fileURLToPath(new URL('../data/', import.meta.url));
 export const defaultConfig = () => ({
   server: { name: 'watch.local', host: '0.0.0.0', port: 8091, publicUrl: '', requireLanLogin: false, webPort80: false, mdns: true, mdnsHostname: 'watch' },
@@ -83,6 +84,12 @@ export function createSettingsStore(directory) {
     state.config ||= defaults; state.config.server = { ...defaults.server, ...state.config.server }; state.config.metadata = { ...defaults.metadata, ...state.config.metadata }; state.pinned ||= [];
     state.config.updates = { ...defaults.updates, ...state.config.updates };
     state.config.live = { ...defaults.live, ...state.config.live };
+    state.config.playback = { ...defaults.playback, ...state.config.playback };
+    // Append newly introduced providers once, retaining the user's order and
+    // every existing disable choice. A subsequently disabled Reelix stays off.
+    const added = providerNames.filter(name => !state.config.playback.order.includes(name));
+    state.config.playback.order.push(...added);
+    state.config.playback.enabled.push(...added.filter(name => !state.config.playback.enabled.includes(name)));
     if (['FreeIPTV', 'FIPTV'].includes(state.config.server.name)) state.config.server.name = defaults.server.name;
     await save(state); return state;
   })();

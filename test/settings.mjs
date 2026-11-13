@@ -84,3 +84,21 @@ test('existing installations gain live providers and retain independent enable/d
   for(const live of [null,[],true,{zlive:'false'},{timstreams:'false'},{unknown:true}])await assert.rejects(restored.configure({live}),{status:400});
  }finally{await rm(directory,{recursive:true,force:true});}
 });
+
+test('existing provider order gains Reelix once and retains disabled providers across restarts', async () => {
+ const directory=await mkdtemp(join(tmpdir(),'watchlocal-reelix-settings-'));
+ try {
+  const original=createSettingsStore(directory);await original.initialize();
+  const state=original.get();
+  const order=defaultConfig().playback.order.filter(p=>p!=='reelix').reverse();
+  state.config.playback.order=order;state.config.playback.enabled=['cinejoy','tvids'];
+  await writeFile(join(directory,'iptv.json'),JSON.stringify(state));
+  const migrated=createSettingsStore(directory);await migrated.initialize();
+  assert.deepEqual(migrated.config().playback.order,[...order,'reelix']);
+  assert.deepEqual(migrated.config().playback.enabled,['cinejoy','tvids','reelix']);
+  await migrated.configure({playback:{enabled:['cinejoy','tvids']}});
+  const reloaded=createSettingsStore(directory);await reloaded.initialize();
+  assert.deepEqual(reloaded.config().playback.order,[...order,'reelix']);
+  assert.deepEqual(reloaded.config().playback.enabled,['cinejoy','tvids']);
+ } finally {await rm(directory,{recursive:true,force:true});}
+});

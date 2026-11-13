@@ -108,7 +108,7 @@ function mockProvider(provider, kind, { brokenAthena = false, bait = false } = {
   return { fetchResource, calls };
 }
 
-for (const provider of PROVIDERS.slice(1)) for (const kind of ['movie', 'series']) {
+for (const provider of PROVIDERS.filter(p => !['cinejoy', 'reelix'].includes(p))) for (const kind of ['movie', 'series']) {
   test(`${provider} ${kind}: resolves and verifies HLS with provider headers`, async () => {
     const mock = mockProvider(provider, kind);
     const resolver = createProviderResolver({ ...mock, getCatalogData: async path => { assert.match(path, /\/550\/external_ids$/); return { imdb_id: 'tt0137523' }; } });
