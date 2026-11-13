@@ -336,7 +336,10 @@ with the connected sources. [View the ten logo concepts](docs/branding/concepts.
   or choose **Start over** in the player. Progress is saved on the server per
   profile and survives restarts. Profiles belong to an account; LAN visitors
   without a login can choose from the owner's profiles, each with separate
-  history. Finished titles leave the row. This tracks the built-in web player;
+  history. Completed episodes advance to the next released episode with an
+  **Up next** card, including across seasons; any saved progress on that episode
+  is preserved. Finished movies and shows with no next released episode leave
+  the row. This tracks the built-in web player;
   external IPTV apps manage their own playback history.
 - **Live TV:** Discover channel shelves or browse the complete lineup. Genres
   include Sports, News, Entertainment, Movies, Kids & Family, Documentaries,

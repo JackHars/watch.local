@@ -31,9 +31,9 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
    assert.notEqual(new URL(url).hostname,'db.hls.lol','Catalog requests must not contact Atlantic');
    if(new URL(url).hostname==='7movies.ac'){
     const u=new URL(url),path=u.searchParams.get('path');
-    if(u.pathname==='/api/tv/1396/season/2')return new Response(JSON.stringify({episodes:[{id:972873,episode_number:1,name:'Episode one',runtime:48}]}));
+    if(u.pathname==='/api/tv/1396/season/2')return new Response(JSON.stringify({episodes:[{id:972873,episode_number:1,name:'Episode one',runtime:48,air_date:'2008-01-01'},{id:972874,episode_number:2,name:'Episode two',runtime:48,air_date:'2008-01-08'}]}));
     if(u.pathname==='/api/search')return new Response(JSON.stringify({results:[{id:550,title:'Fixture Movie',mediaType:'movie',year:'1999',poster:'https://image.tmdb.org/t/p/w500/movie.jpg'}]}));
-    if(path==='/tv/1396')return new Response(JSON.stringify({id:1396,name:'Fixture Series',seasons:[{season_number:2,episode_count:1,name:'Season 2'}]}));
+    if(path==='/tv/1396')return new Response(JSON.stringify({id:1396,name:'Fixture Series',seasons:[{season_number:2,episode_count:2,name:'Season 2'}]}));
     if(path==='/movie/550')return new Response(JSON.stringify({id:550,title:'Fixture Movie'}));
     const item=path?.startsWith('/tv/')?{id:1396,name:'Fixture Series',first_air_date:'2008-01-20'}:{id:550,title:'Fixture Movie',release_date:'1999-10-15'};
     const qualifying={...item,original_language:'en',genre_ids:[18],vote_average:8.5,vote_count:15000,popularity:40,poster_path:'/movie.jpg'};
@@ -97,6 +97,11 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   r=await request('/ui/title?type=tv&id=1396',{cookie:admin});assert.equal((await r.json()).seasons[0].season_number,2);
   r=await request('/ui/episodes?id=1396&season=2',{cookie:admin});assert.equal((await r.json()).episodes[0].id,972873);
   r=await request('/player_api.php?username=owner&password=password123&action=get_series_info&series_id=1396');const details=await r.json();assert.equal(details.episodes['2'][0].id,'972873');assert.match(details.episodes['2'][0].direct_source,/\/series\/owner\/password123\/972873/);
+  const finishedEpisode={...progress,type:'tv',id:1396,title:'Fixture Series',season:2,episode:1,position:2880,duration:2880,ended:true};
+  assert.equal((await request('/ui/progress',{cookie:admin,method:'POST',body:finishedEpisode})).status,200);
+  const continuation=(await request('/ui/progress?profileId='+ownerProfile.id,{cookie:admin}).then(r=>r.json())).items;
+  assert.equal(continuation[0].nextEpisode,true);assert.equal(continuation[0].season,2);assert.equal(continuation[0].episode,2);assert.equal(continuation[0].position,0);
+  assert.equal((await request('/ui/progress?type=tv&id=1396&season=2&episode=2&profileId='+ownerProfile.id,{cookie:admin}).then(r=>r.json())).progress,null);
   assert.equal((await request('/ui/settings',{cookie:admin,method:'PUT',body:{metadata:{tmdbFallback:true}}})).status,400);
   assert.equal((await request('/ui/tmdb',{method:'PUT',cookie:admin,body:{credential:'fixture-tmdb-credential'},origin:'https://evil.test'})).status,403);
   assert.equal((await request('/ui/tmdb',{method:'PUT',cookie:admin,body:{credential:'invalid-fixture-credential'}})).status,400);

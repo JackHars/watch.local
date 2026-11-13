@@ -8,12 +8,14 @@ import { initializeIPTV, browserPlay, browserLive, catalogStatus, refreshCatalog
 import { saveTMDBCredential } from './tmdb.mjs';
 import { getCatalogData } from './platform.mjs';
 import { watchProgressStore } from './watch-progress.mjs';
+import { createContinueWatching } from './continue-watching.mjs';
 import { sportsArtworkOrigins } from './sports.mjs';
 
 const activity = [], started = Date.now();
 const updates = createUpdateControl(join(dataDirectory, 'updates'));
 const repair = createUpdateRepair(join(dataDirectory, 'updates/repair'), { account: id => settingsStore.user(id) });
 const nativeStreams = new Map();
+const continueWatching = createContinueWatching({ store: watchProgressStore, catalog: getCatalogData });
 export function recordActivity(event) { if (event.target === '/ui/activity') return; activity.push({ ...event, at: new Date().toISOString() }); if (activity.length > 200) activity.shift(); }
 const json = (res, status, data) => { if (res.destroyed) return; res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
 async function body(req) {
@@ -88,7 +90,7 @@ export async function handleWeb(req, res) {
       const profileId = url.searchParams.get('profileId');
       json(res, 200, url.searchParams.has('id')
         ? { progress: await watchProgressStore.get(user.id, profileId, Object.fromEntries(url.searchParams)) }
-        : { items: await watchProgressStore.list(user.id, profileId) });
+        : { items: await continueWatching(user.id, profileId) });
       return true;
     }
     if (path === '/ui/progress' && req.method === 'POST') {

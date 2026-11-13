@@ -77,8 +77,10 @@ function continueWatchingRail(items){
   const cards=items.map(item=>{
     const remaining=Math.max(1,Math.ceil((item.duration-item.position)/60));
     const episode=item.type==='tv'?`S${item.season} · E${item.episode} · `:'';
-    const percent=Math.max(0,Math.min(100,item.position/item.duration*100));
-    return `<button class="media-card continue-card" data-action="play" data-type="${item.type}" data-id="${item.id}" ${item.type==='tv'?`data-season="${item.season}" data-episode="${item.episode}"`:''} data-title="${esc(item.title)}" aria-label="Resume ${esc(item.title)}, ${episode}${remaining} minutes left"><div class="card-image">${image(item.backdrop_path||item.poster_path,item.title)}<span class="resume-badge">${icon('play')}Resume</span><span class="watch-progress" aria-hidden="true"><span style="width:${percent}%"></span></span></div><div class="card-caption"><strong>${esc(item.title)}</strong><small>${episode}${remaining} min left</small></div></button>`;
+    const percent=item.duration>0?Math.max(0,Math.min(100,item.position/item.duration*100)):0;
+    const label=item.nextEpisode?'Up next':'Resume';
+    const caption=episode+(item.nextEpisode?(item.episodeTitle||'Next episode'):remaining+' min left');
+    return `<button class="media-card continue-card" data-action="play" data-type="${item.type}" data-id="${item.id}" ${item.type==='tv'?`data-season="${item.season}" data-episode="${item.episode}"`:''} data-title="${esc(item.title)}" aria-label="${label} ${esc(item.title)}, ${esc(caption)}"><div class="card-image">${image(item.backdrop_path||item.poster_path,item.title)}<span class="resume-badge">${icon('play')}${label}</span>${item.nextEpisode?'':`<span class="watch-progress" aria-hidden="true"><span style="width:${percent}%"></span></span>`}</div><div class="card-caption"><strong>${esc(item.title)}</strong><small>${esc(caption)}</small></div></button>`;
   }).join('');
   return `<section class="rail-section continue-watching" aria-labelledby="continue-watching-title"><div class="section-head"><div><h2 id="continue-watching-title">Continue Watching</h2><p>Pick up where you left off.</p></div><div class="rail-controls"><button class="icon-btn" data-action="rail" data-direction="-1" aria-label="Scroll Continue Watching left">${icon('left')}</button><button class="icon-btn" data-action="rail" data-direction="1" aria-label="Scroll Continue Watching right">${icon('right')}</button></div></div><div class="rail">${cards}</div></section>`;
 }
