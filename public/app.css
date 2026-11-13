@@ -352,3 +352,9 @@ body:has(dialog[open]){overflow:hidden}
 #repair-terminal form{padding-top:8px}#repair-terminal form small{display:block;color:var(--muted);font-size:12px;margin-top:12px}
 #repair-terminal .actions{margin-top:22px;flex-wrap:wrap}#repair-terminal .repair-help{font-size:13px}
 @media(max-width:600px){#repair-terminal{padding:20px;max-height:calc(100dvh - 20px);width:calc(100% - 20px)}#repair-terminal h2{font-size:21px}#repair-terminal pre{padding:12px;min-height:100px;max-height:180px;font-size:12px}#repair-terminal form .btn{width:100%}}
+
+/* Title summaries expand in place, including on narrow and landscape screens. */
+.description-toggle{display:block;min-height:44px;padding:6px 0;background:none;color:var(--blue);font-size:14px;font-weight:600;text-align:left}
+.description-toggle[hidden]{display:none}
+.detail-hero.description-expanded{height:auto;max-height:none}
+.detail-hero.description-expanded .description{display:block;-webkit-line-clamp:unset;overflow:visible}

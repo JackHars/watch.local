@@ -49,15 +49,26 @@ function nav(){
   return `<header class="topbar"><a class="logo" href="#home" aria-label="watch.local home"><img class="brand-mark" src="/brand.svg" alt="watch.local" width="422" height="72"></a><nav class="nav" aria-label="Main navigation">${tabs.map(tab=>link(...tab)).join('')}</nav><div class="nav-actions"><a href="#search" class="icon-btn search-shortcut" aria-label="Search">${icon('search')}</a><a href="#settings/${state.user.role==='admin'?'general':'connections'}" class="icon-btn" aria-label="Settings">${icon('settings')}</a><button class="icon-btn profile-switch" data-action="switch-profile" aria-label="Switch profile, ${esc(state.profile.name)}" title="${esc(state.profile.name)}">${profileAvatar(state.profile)}</button></div></header>
   <nav class="mobile-dock" aria-label="Mobile navigation"><div class="dock-tabs glass-surface" data-glass="dock-lens"><span class="glass-backdrop" aria-hidden="true"></span><span class="dock-selection" aria-hidden="true"></span>${tabs.map(([key,label,symbol])=>link(key,key==='home'?'Home':label,symbol)).join('')}</div><a href="#search" class="dock-search glass-surface ${page==='search'?'active':''}" data-glass="search-lens" aria-label="Search" ${page==='search'?'aria-current="page"':''}><span class="glass-backdrop" aria-hidden="true"></span>${icon('search')}</a></nav>`;
 }
-let navigationKey='';
+let navigationKey='', descriptionObserver;
+function mountDescriptionToggle(){
+  descriptionObserver?.disconnect();
+  const description=$('.detail-hero .description'),button=$('[data-action=toggle-description]');
+  if(!description||!button)return;
+  const update=()=>{button.hidden=button.getAttribute('aria-expanded')!=='true'&&description.scrollHeight<=description.clientHeight+1;};
+  descriptionObserver=new ResizeObserver(update);
+  descriptionObserver.observe(description);
+  update();
+}
+
 function shell(content){
   stopHomeCarousel();
   updatePrompt.check();
   const key=JSON.stringify([location.hash,state.user.id,state.user.role,state.user.username,state.name,state.profile.id]);
-  if(navigationKey===key&&$('.topbar')&&$('#main')){$('#main').innerHTML=content;return;}
+  if(navigationKey===key&&$('.topbar')&&$('#main')){$('#main').innerHTML=content;mountDescriptionToggle();return;}
   navigationKey=key;
   $('#app').innerHTML=nav()+`<main id="main" tabindex="-1">${content}</main>`;
   navigation.mount();
+  mountDescriptionToggle();
 }
 function card(item,poster=false){const t=title(item),type=item.type||'movie';return `<a class="media-card" href="#title/${type}/${item.id}" aria-label="View ${esc(t)}"><div class="card-image">${image(poster?item.poster_path:item.backdrop_path||item.poster_path,t,poster?'w500':'w780')}<span class="card-play">${icon('play')}</span></div><div class="card-caption"><strong>${esc(t)}</strong><small>${type==='tv'?'Series':'Movie'}${year(item)?' · '+esc(year(item)):''}${item.vote_average?' · '+Number(item.vote_average).toFixed(1):''}</small></div></a>`;}
 function rail(label,items,{poster=false,subtitle='',link=''}={}){return `<section class="rail-section"><div class="section-head"><div><h2>${label}</h2>${subtitle?`<p>${subtitle}</p>`:''}</div><div class="rail-controls">${link?`<a class="text-link" href="${link}">See all</a>`:''}<button class="icon-btn" data-action="rail" data-direction="-1" aria-label="Scroll ${label} left">${icon('left')}</button><button class="icon-btn" data-action="rail" data-direction="1" aria-label="Scroll ${label} right">${icon('right')}</button></div></div><div class="rail ${poster?'poster':''}">${items.map(i=>card(i,poster)).join('')}</div></section>`;}
@@ -78,7 +89,7 @@ async function refreshContinueWatching(){
 }
 function hero(item,detail=false,{featured=false,eager=true}={}){
   const type=item.type||'movie',art=img(item.backdrop_path||item.poster_path,'original');
-  return `<section class="hero ${detail?'detail-hero':''}">${art?`<img class="hero-art" ${eager?'src':'data-src'}="${esc(art)}" alt="" decoding="async" ${eager?'fetchpriority="high"':''}>`:''}<div class="hero-copy">${featured?'<p class="hero-eyebrow">Trending Now</p>':''}<h1>${esc(title(item))}</h1><div class="meta"><span>${esc(year(item))}</span>${item.vote_average?`<span>★ ${Number(item.vote_average).toFixed(1)}</span>`:''}${item.runtime?`<span>${Math.floor(item.runtime/60)}h ${item.runtime%60}m</span>`:''}<span>${esc(item.genres?.slice(0,2).map(g=>g.name).join(' · ')|| (type==='tv'?'Series':'Movie'))}</span>${featured?'':'<span class="badge">HLS</span>'}</div><p class="description">${esc(item.overview||'Explore this title and find a stream from your connected providers.')}</p><div class="actions"><button class="btn primary" data-action="${type==='tv'?'episodes':'play'}" data-type="${type}" data-id="${item.id}" data-title="${esc(title(item))}">${icon('play')}${type==='tv'?'Browse episodes':'Play movie'}</button>${detail?`<button class="btn" data-action="save" data-id="${item.id}" data-type="${type}">${icon(saved(item)?'check':'plus')}${saved(item)?'In My List':'Add to My List'}</button>`:`<a class="btn" href="#title/${type}/${item.id}">${icon('info')}More info</a>`}</div></div>${featured?'':`<div class="hero-note">${icon('tv')}Watch here. Or in your favorite IPTV player.</div>`}</section>`;
+  return `<section class="hero ${detail?'detail-hero':''}">${art?`<img class="hero-art" ${eager?'src':'data-src'}="${esc(art)}" alt="" decoding="async" ${eager?'fetchpriority="high"':''}>`:''}<div class="hero-copy">${featured?'<p class="hero-eyebrow">Trending Now</p>':''}<h1>${esc(title(item))}</h1><div class="meta"><span>${esc(year(item))}</span>${item.vote_average?`<span>★ ${Number(item.vote_average).toFixed(1)}</span>`:''}${item.runtime?`<span>${Math.floor(item.runtime/60)}h ${item.runtime%60}m</span>`:''}<span>${esc(item.genres?.slice(0,2).map(g=>g.name).join(' · ')|| (type==='tv'?'Series':'Movie'))}</span>${featured?'':'<span class="badge">HLS</span>'}</div><p class="description" ${detail?'id="hero-description"':''}>${esc(item.overview||'Explore this title and find a stream from your connected providers.')}</p>${detail?'<button type="button" class="description-toggle" data-action="toggle-description" aria-expanded="false" aria-controls="hero-description" hidden>Read more</button>':''}<div class="actions"><button class="btn primary" data-action="${type==='tv'?'episodes':'play'}" data-type="${type}" data-id="${item.id}" data-title="${esc(title(item))}">${icon('play')}${type==='tv'?'Browse episodes':'Play movie'}</button>${detail?`<button class="btn" data-action="save" data-id="${item.id}" data-type="${type}">${icon(saved(item)?'check':'plus')}${saved(item)?'In My List':'Add to My List'}</button>`:`<a class="btn" href="#title/${type}/${item.id}">${icon('info')}More info</a>`}</div></div>${featured?'':`<div class="hero-note">${icon('tv')}Watch here. Or in your favorite IPTV player.</div>`}</section>`;
 }
 function featuredCarousel(items){
   return `<section class="featured-carousel" aria-label="Trending now" aria-roledescription="carousel" data-index="0"><div class="featured-viewport"><div class="featured-track">${items.map((item,index)=>`<div class="featured-slide" data-slide role="group" aria-roledescription="slide" aria-label="${index+1} of ${items.length}: ${esc(title(item))}" aria-hidden="${index!==0}" ${index?'inert':''}>${hero(item,false,{featured:true,eager:index===0})}</div>`).join('')}</div></div>${items.length>1?`<div class="featured-controls"><button class="icon-btn carousel-arrow" data-carousel-step="-1" aria-label="Previous featured title">${icon('left')}</button><div class="featured-dots">${items.map((item,index)=>`<button data-carousel-index="${index}" aria-label="Show ${esc(title(item))}" ${index===0?'aria-current="true"':''}><span></span></button>`).join('')}</div><button class="icon-btn carousel-arrow" data-carousel-step="1" aria-label="Next featured title">${icon('right')}</button><button class="icon-btn carousel-toggle" data-carousel-toggle aria-label="Pause slideshow" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg></button></div>`:''}</section>`;
@@ -329,6 +340,13 @@ async function play(data,fresh=false){if(!state.profile)return profilesPage();co
 $('#player').addEventListener('cancel',e=>{e.preventDefault();closePlayer();});
 document.addEventListener('click',async e=>{if(e.target.closest('a[href="#search"]')&&!e.defaultPrevented&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&!e.shiftKey&&e.button===0){e.preventDefault();openSearch();return;}if(e.target.closest('.skip')){e.preventDefault();$('#main')?.focus();return;}const button=e.target.closest('[data-action]');if(!button)return;const action=button.dataset.action;
   try{
+    if(action==='toggle-description'){
+      const expanded=button.getAttribute('aria-expanded')!=='true';
+      button.setAttribute('aria-expanded',String(expanded));
+      button.textContent=expanded?'Show less':'Read more';
+      button.closest('.hero').classList.toggle('description-expanded',expanded);
+      return;
+    }
     if(action==='reload')return route();
     if(action==='refresh-live'){setBusy(button,true);try{await api('live/refresh',{method:'POST',body:{}});return route();}finally{setBusy(button,false);}}
     if(action==='add-profile')return addProfile();
