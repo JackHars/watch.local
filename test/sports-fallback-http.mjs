@@ -39,7 +39,7 @@ test('the same browser, native and IPTV event switches to Strmfree on relay fail
     const { settingsStore } = await import('../api/settings.mjs');
     const { watchProgressStore } = await import('../api/watch-progress.mjs');
     const { createServer } = await import('../server.mjs');
-    await initializeIPTV({ sportsDirectory: directory,
+    await initializeIPTV({ timstreamsSource: { list: async () => [] }, sportsDirectory: directory,
       sportsSource: { list: async sport => ({ events: sport === 'nba' ? [event] : [] }), resolve: async e => e, hls: async e => ({ url: e.stream_url }) },
       strmfreeSource: createStrmfreeSource({ mirrors: ['alternate.test'], directoryURL: null, fetchResource: (...args) => fetch(...args) }),
       zliveSource: { list: async () => [], guide: async () => ({}) },

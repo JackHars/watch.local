@@ -358,3 +358,7 @@ body:has(dialog[open]){overflow:hidden}
 .description-toggle[hidden]{display:none}
 .detail-hero.description-expanded{height:auto;max-height:none}
 .detail-hero.description-expanded .description{display:block;-webkit-line-clamp:unset;overflow:visible}
+
+/* Keep the label and arrow buttons on the same centre line. */
+.rail-controls{align-items:center;flex-shrink:0}
+.rail-controls>.text-link{display:inline-flex;align-items:center;white-space:nowrap;margin-right:4px}

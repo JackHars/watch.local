@@ -346,12 +346,14 @@ with the connected sources. [View the ten logo concepts](docs/branding/concepts.
   Comedy, Lifestyle, Music & Arts, and Motorsports. Search channels and current
   programmes, then narrow by country or sport. Compact channel cards show local
   broadcaster artwork, region, quality, and now-playing information where available.
-  **All channels** includes regional and backup feeds; **Show more** reveals the
+  **All channels** groups matching feeds into one card and keeps regional versions separate; **Show more** reveals the
   rest of a large lineup. **Live sports** keeps scheduled events easy to find,
   with event artwork, local start times, and full-width watch buttons on phones.
-  Both live providers are enabled by default and can
-  be toggled separately in **Settings → Providers → Live TV**. ZLive needs no
-  API key or separate service. Playback availability is checked when you watch.
+  ZLive, Tim Streams and sports are enabled by default and can be toggled
+  separately in **Settings → Providers → Live TV**. Matching channels use the
+  extra feeds as automatic fallbacks when the first source fails. Neither
+  channel provider needs an API key or separate service. Playback availability
+  is checked when you watch.
 - **Settings → IPTV connections:** Copy Xtream credentials, M3U playlists, and the
   XMLTV guide. Administrators can select any account; viewers see their own.
 - **Settings → Metadata:** Keep upstream providers as the default, optionally
@@ -530,6 +532,21 @@ them into ordinary video on the server, including byte-range support for native
 players. A bounded cache shares decoded segments between viewers. This runs in
 Node.js, including on Raspberry Pi, without FFmpeg or another API process.
 
+The Tim Streams adapter imports its public channel API and maps its genres into
+these same categories. It decodes the player's ticket data into a short-lived
+HLS URL without executing upstream JavaScript or launching a browser. Tickets
+stay in memory; only stable channel IDs and listings are saved. Video is checked
+before opening the player, since an upstream playlist can exist while its CDN
+rejects the actual segments.
+
+The web interface shows one card per broadcaster and country. ZLive is tried
+first for shared channels, followed by matching backup feeds and Tim Streams.
+A failed video check tries the next feed automatically. Later media failures
+also prepare a replacement for the player's next playlist refresh. Separate
+countries and numbered networks are never treated as interchangeable. IPTV
+retains individual feed IDs for existing favorites; those IDs can use the same
+fallbacks. A provider disabled in Settings is excluded from fallback selection.
+
 Channel listings refresh hourly and the guide every five minutes. Persistent
 channel IDs keep IPTV favorites stable. Failed catalog refreshes retain cached
 listings, and alternate published sources are tried when resolution fails.
@@ -545,7 +562,7 @@ The sports adapter follows published iframe or player links from event pages to
 find an HLS feed. It relays that feed using the source page's `Referer`, `Origin`,
 and browser-style User-Agent. A scheduled event remains unplayable until its
 source publishes a supported HLS link. Channel availability also depends on
-ZLive's upstream hosts; the repository contains no broadcast files or video library.
+the providers' upstream hosts; the repository contains no broadcast files or video library.
 
 ## Configuration
 

@@ -9,9 +9,9 @@ export const channelCategories = liveCategories;
 // These identities describe broadcasters, not stream availability. Keep the
 // provider's numeric IDs and alternate feeds; enrich old caches on read too.
 export function channelMetadata(channel) {
-  const known = directory[channel.key] || names.get(normalizeLiveSearch(channel.name));
+  const known = (channel.provider === 'timstreams' ? null : directory[channel.key]) || names.get(normalizeLiveSearch(channel.name));
   const name = known?.name || channel.name;
-  const category = known?.category || (/\bf1\b|motogp|motorsport/i.test(channel.name) || channel.group === 'F1' ? 'motorsports'
+  const category = known?.category || (categoryByID.has(channel.category) ? channel.category : null) || (/\bf1\b|motogp|motorsport/i.test(channel.name) || channel.group === 'F1' ? 'motorsports'
     : /news|weather|bloomberg/i.test(channel.name) ? 'news'
     : /\bkids\b|cartoon|nickelodeon|disney|treehouse/i.test(channel.name) || channel.group === 'Kids' ? 'kids'
     : /sport|\bespn\b|\btsn\b/i.test(channel.name) || channel.group === 'Sports' ? 'sports'

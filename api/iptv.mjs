@@ -68,7 +68,7 @@ export function initializeIPTV(config = {}) {
     catalog = await readJSON('catalog.json', catalog);
     metadataService.setSearchCatalog(catalog);
     episodeIndex = await readJSON('episodes.json', {});
-    liveTV = createLiveProvider({ directory: config.sportsDirectory || fileURLToPath(dataDirectory), sportsSource: config.sportsSource, zliveSource: config.zliveSource, strmfreeSource: config.strmfreeSource, getConfig: () => settingsStore.config().live });
+    liveTV = createLiveProvider({ directory: config.sportsDirectory || fileURLToPath(dataDirectory), sportsSource: config.sportsSource, zliveSource: config.zliveSource, timstreamsSource: config.timstreamsSource, strmfreeSource: config.strmfreeSource, getConfig: () => settingsStore.config().live });
     await liveTV.initialize();
   })();
   return initialization;
@@ -265,12 +265,12 @@ async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders, l
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 120000);
   res.once('close', () => controller.abort());
-  let reader;
+  let reader, resolvedLive = live;
   try {
     // Resolve temporary live URLs and key authorization on the server for
     // every request, including native players that cannot set custom headers.
     const resource = live ? await liveTV.media(upstream, live) : null;
-    if (resource) upstream = resource.url;
+    if (resource) { upstream = resource.url; resolvedLive = resource.playback || live; }
     const headers = { ...upstreamHeaders, ...resource?.headers };
     const manifestHeaders = { ...headers };
     if (live?.provider === 'zlive' && /\/segment\.[a-z0-9]+$/i.test(req.url.split('?')[0])) return await zliveRelay(req, res, upstream, headers);
@@ -303,7 +303,8 @@ async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders, l
       const rawPlaylist = Buffer.concat(chunks).toString('utf8');
       const original = settings.config.playback.quality === 'adaptive' ? rawPlaylist : highestQualityPlaylist(rawPlaylist);
       const sourceURL = response.url || upstream;
-      const relayLive = resource?.playback?.sportsSource && resource.playback.sportsSource !== live?.sportsSource ? resource.playback : live;
+      const changedSource = resolvedLive?.provider !== live?.provider || resolvedLive?.memberId !== live?.memberId || resolvedLive?.sportsSource !== live?.sportsSource;
+      const relayLive = changedSource ? resolvedLive : live;
       let playlist = rewriteHLS(original, sourceURL, base, manifestHeaders, relayLive, resource?.playback);
       if (decorate) playlist = await decorate(playlist, original, sourceURL);
       return reply(req, res, 200, playlist, 'application/vnd.apple.mpegurl');
@@ -319,9 +320,9 @@ async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders, l
       while (true) { const next = await reader.read(); if (next.done) break; yield next.value; }
     })()), res);
   } catch (error) {
-    if (!res.headersSent && !res.destroyed && !controller.signal.aborted && live?.sportsSource === 'primary') {
+    if (!res.headersSent && !res.destroyed && !controller.signal.aborted && (resolvedLive?.sportsSource === 'primary' || resolvedLive?.group)) {
       clearTimeout(timer); await reader?.cancel().catch(() => {});
-      const replacement = await liveTV.recover(live).catch(() => null);
+      const replacement = await liveTV.recover(resolvedLive).catch(() => null);
       // Never return a manifest or another game's segment for a video/key URL.
       // A failed segment also primes the next root refresh to use the fallback.
       if (replacement && (/\/playlist\.m3u8(?:\?|$)/.test(req.url) || /^\/live\//.test(req.url))) return serveMedia(req, res, replacement.url, base, decorate, replacement.headers, replacement.playback);
@@ -531,7 +532,7 @@ export async function browserPlay(req, res, user, input) {
     if (input.type === 'live') {
       const live = await liveTV.resolve(idNumber(input.id), { fresh: Boolean(input.fresh) });
       liveExpiry(input.id);
-      return { url: assetURL(base, live.url, 'playlist', live.headers, live.playback ? { live: live.playback } : {}), provider: live.playback?.provider === 'zlive' ? 'zlive' : live.playback?.sportsSource === 'strmfree' ? 'strmfree' : 'sports' };
+      return { url: assetURL(base, live.url, 'playlist', live.headers, live.playback ? { live: live.playback } : {}), provider: ['zlive', 'timstreams'].includes(live.playback?.provider) ? live.playback.provider : live.playback?.sportsSource === 'strmfree' ? 'strmfree' : 'sports' };
     }
     const type = input.type === 'tv' ? 'series' : input.type === 'movie' ? 'movie' : null;
     if (!type) throw new HttpError(400, 'Choose a movie, episode, or live event.');

@@ -29,7 +29,7 @@ test('sports Xtream import, EPG, live M3U, auth and live HLS proxy preserve qual
   let server;
   const requests = [];
   try {
-    await initializeIPTV({ zliveSource: { async list() { return []; } }, sportsDirectory: directory, sportsSource: source });
+    await initializeIPTV({ timstreamsSource: { list: async () => [] }, zliveSource: { async list() { return []; } }, sportsDirectory: directory, sportsSource: source });
     const settings = settingsStore.get();
     server = createServer({ onRequest: event => requests.push(event) }); server.listen(0, '127.0.0.1'); await once(server, 'listening');
     const base = `http://127.0.0.1:${server.address().port}`;

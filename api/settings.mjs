@@ -13,7 +13,7 @@ export const defaultConfig = () => ({
   server: { name: 'watch.local', host: '0.0.0.0', port: 8091, publicUrl: '', requireLanLogin: false, webPort80: false, mdns: true, mdnsHostname: 'watch' },
   playback: { order: [...providerNames], enabled: [...providerNames], providerTimeout: 30, totalTimeout: 180, cacheSeconds: 300, quality: 'highest' },
   catalog: { pages: 2000, refreshHours: 12 },
-  live: { sports: true, zlive: true, strmfree: true },
+  live: { sports: true, zlive: true, timstreams: true, strmfree: true },
   metadata: { tmdbCredential: '', tmdbFallback: false },
   updates: { enabled: false, intervalMinutes: 5 },
 });
@@ -50,7 +50,7 @@ function validateConfig(config) {
   number(playback.cacheSeconds, 0, 1800, 'Cache time');
   if (!['highest', 'adaptive'].includes(playback.quality)) throw problem(400, 'Invalid quality preference.');
   number(catalog.pages, 1, 2000, 'Catalog pages'); number(catalog.refreshHours, 1, 168, 'Refresh interval');
-  if (typeof live.sports !== 'boolean' || typeof live.zlive !== 'boolean' || typeof live.strmfree !== 'boolean') throw problem(400, 'Invalid live TV provider setting.');
+  if (typeof live.sports !== 'boolean' || typeof live.zlive !== 'boolean' || typeof live.strmfree !== 'boolean' || typeof live.timstreams !== 'boolean') throw problem(400, 'Invalid live TV provider setting.');
   if (typeof metadata.tmdbFallback !== 'boolean') throw problem(400, 'Invalid TMDB fallback setting.');
   if (metadata.tmdbFallback && !metadata.tmdbCredential) throw problem(400, 'Save a TMDB credential before enabling its fallback.');
   if (typeof updates.enabled !== 'boolean') throw problem(400, 'Invalid automatic update setting.');
@@ -108,7 +108,7 @@ export function createSettingsStore(directory) {
     async configure(config) {
       if ('metadata' in config && (!config.metadata || typeof config.metadata !== 'object' || Array.isArray(config.metadata) || Object.keys(config.metadata).some(key => key !== 'tmdbFallback'))) throw problem(400, 'Use Metadata settings to validate and save your TMDB credential.');
       if ('updates' in config && (!config.updates || typeof config.updates !== 'object' || Array.isArray(config.updates) || Object.keys(config.updates).some(key => !['enabled','intervalMinutes'].includes(key)))) throw problem(400, 'Invalid update settings.');
-      if ('live' in config && (!config.live || typeof config.live !== 'object' || Array.isArray(config.live) || Object.keys(config.live).some(key => !['sports','zlive','strmfree'].includes(key)))) throw problem(400, 'Invalid live TV provider settings.');
+      if ('live' in config && (!config.live || typeof config.live !== 'object' || Array.isArray(config.live) || Object.keys(config.live).some(key => !['sports','zlive','strmfree','timstreams'].includes(key)))) throw problem(400, 'Invalid live TV provider settings.');
       return mutate(next => { const merged = structuredClone(next.config); for (const section of ['server','playback','catalog','metadata','updates','live']) if (config[section]) merged[section] = { ...merged[section], ...config[section] }; validateConfig(merged); next.config = merged; });
     },
     async upsertUser(input, actor, id) {
