@@ -7,11 +7,12 @@
   <link rel="apple-touch-icon" href="/icon-180.png">
   <link rel="manifest" href="/manifest.webmanifest">
   <title>watch.local</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/app.css">
-  <script src="/vendor/hls.js" defer></script><script src="/app.js" type="module"></script>
+  <script src="/boot.js" defer></script><script src="/vendor/hls.js" defer></script><script src="/app.js" type="module"></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
-  <div id="app"><div class="boot"><img class="brand-mark" src="/brand.svg" alt="watch.local" width="422" height="72"><p>Opening your library…</p></div></div>
+  <div id="app"><div class="boot" id="boot-screen"><img class="brand-mark" src="/brand.svg" alt="watch.local" width="422" height="72"><p>Opening your library…</p></div></div>
+  <noscript><style>#boot-screen{display:none}</style><p class="boot">JavaScript is required to open watch.local. Enable it in your browser and reload this page.</p></noscript>
   <div id="toast" role="status" aria-live="polite"></div>
   <dialog id="dialog"></dialog>
   <dialog id="player"></dialog>

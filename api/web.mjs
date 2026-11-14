@@ -38,6 +38,8 @@ const files = new Map([
   ['/watch-progress.mjs', ['../public/watch-progress.mjs','text/javascript']],
   ['/mobile-player.mjs', ['../public/mobile-player.mjs','text/javascript']],
   ['/profiles.mjs', ['../public/profiles.mjs','text/javascript']],
+  ['/boot.js', ['../public/boot.js','text/javascript']],
+  ['/request.mjs', ['../public/request.mjs','text/javascript']],
   ['/preferences.mjs', ['../public/preferences.mjs','text/javascript']],
   ['/home.mjs', ['../public/home.mjs','text/javascript']],
   ['/live.mjs', ['../public/live.mjs','text/javascript']],

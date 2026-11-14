@@ -7,6 +7,7 @@ import { livePage, mountLivePage } from './live.mjs';
 import { createUpdatePrompt } from './updates.mjs';
 import { createRepairTerminal } from './update-repair.mjs';
 import { watchlistPreference } from './preferences.mjs';
+import { fetchJSON } from './request.mjs';
 // Safari can mark a tapped select as focus-visible. Track how focus was
 // reached without blurring controls, blocking selection, or changing the picker.
 document.addEventListener('pointerdown',event=>{
@@ -33,13 +34,13 @@ const initials = user => (user.username||'U').slice(0,2).toUpperCase();
 const names = {timstreams:'Tim Streams',zlive:'ZLive',sports:'Live sports',strmfree:'Strmfree',cinejoy:'Cinejoy',atlantic:'Atlantic',tvids:'Tvids',zstream:'Zstream',vidrift:'Vidrift',vidsrc:'VidSrc',reelix:'Reelix'};
 const subtitles = {cinejoy:'Cinejoy · four video mirrors',atlantic:'Athena, Aphrodite & Moscow',tvids:'Xpass · verified backup feeds',zstream:'Cinecat & P-Stream',vidrift:'7movies · Bigbang & Vexon',vidsrc:'IMDb-based video sources',reelix:'VidCore · movie and episode fallback'};
 async function api(path, options={}) {
-  const response = await fetch('/ui/'+path,{...options,headers:{'Content-Type':'application/json',...options.headers},body:options.body?JSON.stringify(options.body):undefined});
-  const data = await response.json();
+  const startup = ['session','profiles'].includes(path) && (!options.method || options.method === 'GET');
+  const {response,data} = await fetchJSON('/ui/'+path,{timeoutMs:startup?15000:0,...options,headers:{'Content-Type':'application/json',...options.headers},body:options.body?JSON.stringify(options.body):undefined});
   if (!response.ok) { if(response.status===401 && path!=='login'){state.user=null;closePlayer();$('#dialog').close();renderLogin();} throw Error(data.error||'Unable to complete this request.'); }
   return data;
 }
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove('show'),3500);}
-function errorBox(error){return `<div class="empty">${icon('info')}<h2>Something didn’t load</h2><p>${esc(error.message)}</p><button class="btn" data-action="reload">Try again</button></div>`;}
+function errorBox(error,{restart=false}={}){return `<div class="empty">${icon('info')}<h2>Something didn’t load</h2><p>${esc(error.message)}</p><button class="btn" data-action="${restart?'restart-app':'reload'}">Try again</button></div>`;}
 function setBusy(button,busy){button.disabled=busy;if(busy){button.dataset.label=button.innerHTML;button.textContent='Saving…';}else if(button.dataset.label)button.innerHTML=button.dataset.label;}
 function nav(){
   const path=location.hash.slice(1)||'home';
@@ -350,6 +351,7 @@ document.addEventListener('click',async e=>{if(e.target.closest('a[href="#search
       return;
     }
     if(action==='reload')return route();
+    if(action==='restart-app')return location.reload();
     if(action==='refresh-live'){setBusy(button,true);try{await api('live/refresh',{method:'POST',body:{}});return route();}finally{setBusy(button,false);}}
     if(action==='add-profile')return addProfile();
     if(action==='select-profile'){const profile=state.profiles.find(profile=>profile.id===button.dataset.profileId);if(!profile)return;state.profile=profile;rememberProfile(state.user.id,profile.id);viewPositions.clear();visibleRoute='';return route();}
@@ -377,4 +379,4 @@ window.addEventListener('hashchange',route);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshContinueWatching();});
 window.addEventListener('focus',refreshContinueWatching);
 window.addEventListener('keydown',event=>{if(event.key==='/'&&!/INPUT|TEXTAREA|SELECT/.test(event.target.tagName)&&!$('#player').open&&!$('#dialog').open){event.preventDefault();openSearch();}});
-try{let session=await api('session');if(!session.user&&session.lanAccess){await api('logout',{method:'POST',body:{}});session=await api('session');}state.user=session.user;state.lanAccess=session.lanAccess;state.name=session.name;route();}catch(e){$('#app').innerHTML=`<main class="login-page">${errorBox(e)}</main>`;}
+try{let session=await api('session');if(!session.user&&session.lanAccess){await api('logout',{method:'POST',body:{},timeoutMs:15000});session=await api('session');}state.user=session.user;state.lanAccess=session.lanAccess;state.name=session.name;await route();}catch(e){$('#app').innerHTML=`<main class="login-page">${errorBox(e,{restart:true})}</main>`;}finally{document.dispatchEvent(new Event('watchlocal-ready'));}
