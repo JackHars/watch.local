@@ -53,7 +53,8 @@ If the skill lives elsewhere, use its absolute script path. The helper locates w
 2. Prove candidate validation and candidate-to-candidate fallback in an isolated test.
 3. Wire the adapter into the existing resolver, settings, status/UI labels, and IPTV routing as specified in that reference. Keep existing provider order and disabled choices. State any default/migration behavior explicitly in the implementation report.
 4. Prove provider-to-provider fallback and later playback recovery through actual local HTTP routes. A resolver returning a URL is insufficient.
-5. Run [the validation checklist](references/validation.md), inspect the diff, and summarize evidence and remaining limitations.
+5. Run [the validation checklist](references/validation.md) and inspect the diff.
+6. For a completed integration, commit the task's files and push the commit to the checkout's GitHub upstream. Verify that the remote branch contains the exact commit, then summarize evidence and remaining limitations. Follow the publication steps in the validation checklist; do not leave a successful integration only in the local worktree.
 
 For a simple JSON-to-HLS VOD source, adapt [the executable adapter example](assets/vod-adapter.mjs). It deliberately injects `loadSources`: implement that function from the verified API contract. The example contains **no real endpoint or credentials**. Channel and sports references contain their own contract examples; do not use the VOD return shape for live sources.
 
@@ -68,4 +69,4 @@ For a simple JSON-to-HLS VOD source, adapt [the executable adapter example](asse
 
 Stop guessing when a protocol field, identifier mapping, or media format is unsupported. Preserve working providers, report the precise missing evidence, and finish any independent adapter/tests that can be completed. Do not claim native-device playback from fixture tests alone.
 
-The skill itself grants no permission to publish or restart servers. Follow the user's existing authorization; do not ask again for actions already authorized. Otherwise finish a reviewable patch and report it. This skill does not send messages to other agents or services.
+The project owner explicitly requests commit and GitHub push as this skill's default completion step. A later instruction to keep a change local takes precedence. This does not authorize a deployment or server restart; follow the user's existing authorization for those actions. If the integration is blocked or validation fails, report that state instead of publishing it as complete. This skill does not send messages to other agents or services.

@@ -50,6 +50,10 @@ git status --short
 
 `check:private` checks tracked paths and default TMDB configuration, **not all secret content**. Review the actual changed/staged files, including new files. Run the repository's configured secret scanner with redaction if available before publication; do not print full credentials while investigating a hit. Never stage the entire checkout indiscriminately.
 
+## Commit and push a completed integration
+
+After the checks pass, inspect `git status --short` and `git diff`. Stage only the provider integration's code, tests, and documentation; leave unrelated user changes alone. Recheck `git diff --cached --check`, review the staged diff for private values, and run the secret scanner on the staged content or changed files. Commit with a message identifying the provider and push the current branch to its configured GitHub upstream (usually `origin`). Never force push. Confirm the remote branch points to the new commit and the worktree has no remaining task changes. If the push is rejected, inspect the remote change, reconcile it, rerun affected checks, and retry; report an unresolved push failure explicitly.
+
 For this skill's own VOD example, the offline exercise is:
 
 ```bash
@@ -71,6 +75,6 @@ Keep the report short:
 - Provider ID/name, media types and integration/fallback position.
 - Settings/default/migration behavior and whether a service/key is required.
 - Tests run and separately observed live playback, with any untested limitation.
-- Commit/push/deployment status only for actions actually performed.
+- Commit SHA, GitHub push target, and deployment status only for actions actually performed.
 
-Follow existing user authorization for publication/deployment. For a deployment, verify checks for the exact commit and the server's running revision/health; a successful `git fetch` alone does not update or restart the running app. Never replace private runtime configuration to make a test pass.
+The project owner has requested commit and GitHub push at the end of a successful provider integration. A later user instruction can override that default. Deployment remains a separate action: verify checks for the exact commit and the server's running revision/health when deployment is authorized; a successful `git fetch` alone does not update or restart the running app. Never replace private runtime configuration to make a test pass.
