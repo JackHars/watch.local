@@ -1,0 +1,4 @@
+interface:
+  display_name: "watch.local Provider Integration"
+  short_description: "Add providers with verified playback and fallbacks"
+  default_prompt: "Use $watchlocal-provider-integration to integrate this provider into watch.local, preserving fallback behavior and avoiding duplicate channels."
