@@ -13,6 +13,27 @@ import handoff
 
 
 class QueueTests(unittest.TestCase):
+    def test_integrated_sites_are_indexed_and_skipped_before_claim(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            provider_index = root / "provider-index.json"
+            provider_index.write_text(json.dumps({"version": 1, "integrated": [
+                {"id": "existing", "name": "Existing", "kind": "vod",
+                 "origins": ["https://site.example"], "implementation": ["api/providers.mjs"]},
+            ]}))
+            data = {"fetched_at": queue.iso(queue.now()), "items": [
+                {"id": "existing-site", "name": "Existing", "url": "https://www.site.example/", "host": "site.example",
+                 "section": "streaming-sites", "category": "stream-aggregators", "attempts": 0, "status": "pending"},
+                {"id": "next", "name": "Next", "url": "https://next.example/", "host": "next.example",
+                 "section": "streaming-sites", "category": "stream-aggregators", "attempts": 0, "status": "pending"},
+            ]}
+            with patch.object(queue, "INDEX", provider_index), patch.object(queue, "STATE", root), \
+                 patch.object(queue, "QUEUE", root / "queue.json"):
+                self.assertEqual(queue.claim(data)["id"], "next")
+                self.assertEqual(data["items"][0]["status"], "skipped")
+                self.assertEqual([row["id"] for row in queue.index_entries(data)], ["existing"])
+                self.assertEqual(json.loads(queue.QUEUE.read_text())["items"][0]["status"], "skipped")
+
     def test_stream_sites_without_mirrors_or_tools(self):
         page = '''
 <h2 id="streaming-sites">Streaming Sites</h2>

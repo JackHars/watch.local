@@ -9,7 +9,7 @@ Use this workflow to turn a public site's observed playback path into a reproduc
 
 ## 1. Resume before probing
 
-Read the user's exact target and deliverable. Check the current workspace for an API, handoff, captured responses, and a working resolver. Read only the relevant files and their current implementation; a dated handoff can be wrong. Preserve unrelated work. If another agent already reached a valid playlist, start at **media-byte verification**, not site reconnaissance.
+Read the user's exact target and deliverable. In a watch.local checkout, run `python3 automation/watch-bots/fmhy_queue.py lookup <site-url>` first and inspect `automation/watch-bots/provider-index.json`: an integrated exact origin should not be researched again unless the task is to repair it. Check the current workspace for an API, handoff, captured responses, and a working resolver. Read only the relevant files and their current implementation; a dated handoff can be wrong. Preserve unrelated work. If another agent already reached a valid playlist, start at **media-byte verification**, not site reconnaissance.
 
 Write a six-line working note before making requests:
 

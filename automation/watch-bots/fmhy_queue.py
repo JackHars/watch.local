@@ -18,6 +18,7 @@ from pathlib import Path
 SOURCE = "https://fmhy.net/video"
 STATE = Path(os.environ.get("WATCH_BOTS_STATE", "/home/jack/watch-bots/state"))
 QUEUE = STATE / "fmhy-queue.json"
+INDEX = Path(__file__).with_name("provider-index.json")
 SECTIONS = {"streaming-sites", "specialty-streaming", "live-tv-sports"}
 SKIP_CATEGORIES = {"iptv-tools", "iptv-players"}
 SKIP_LABELS = {"2", "3", "4", "5", "mirrors", "status", "guide", "invite", "discord", "api"}
@@ -35,6 +36,59 @@ def iso(value):
 
 def clean_text(markup):
     return html.unescape(re.sub(r"<[^>]*>", "", markup)).replace("\u200b", "").strip()
+
+
+def site_host(value):
+    """Match a site by exact hostname, never by a loose brand substring."""
+    parsed = urllib.parse.urlsplit(value if "://" in value else "https://" + value)
+    return (parsed.hostname or "").lower().removeprefix("www.")
+
+
+def integrated_providers():
+    data = json.loads(INDEX.read_text())
+    if data.get("version") != 1 or not isinstance(data.get("integrated"), list):
+        raise ValueError("Invalid provider index")
+    hosts = {}
+    for provider in data["integrated"]:
+        if not all(provider.get(key) for key in ("id", "name", "kind", "origins", "implementation")):
+            raise ValueError("Provider index has an incomplete entry")
+        for origin in provider["origins"]:
+            host = site_host(origin)
+            if not host or host in hosts:
+                raise ValueError(f"Provider index has an invalid or duplicate host: {origin}")
+            hosts[host] = provider
+    return data["integrated"], hosts
+
+
+def index_entries(data):
+    """Combine code-backed integrations with finished research attempts."""
+    integrated, by_host = integrated_providers()
+    rows = [{**provider, "status": "integrated"} for provider in integrated]
+    for item in data["items"]:
+        if item.get("status") not in {"verified", "unavailable", "blocked", "skipped"}:
+            continue
+        host = item.get("host") or site_host(item["url"])
+        if host in by_host:
+            continue
+        rows.append({key: item[key] for key in ("id", "name", "url", "status", "finished_at", "note", "evidence", "integrator_task") if key in item})
+    return rows
+
+
+def sync_index(data):
+    """Close pending queue sites whose exact origin is already in the app."""
+    _, integrated_hosts = integrated_providers()
+    count = 0
+    for item in data["items"]:
+        if item.get("status") != "pending":
+            continue
+        provider = integrated_hosts.get(item.get("host") or site_host(item["url"]))
+        if not provider:
+            continue
+        item["status"] = "skipped"
+        item["finished_at"] = iso(now())
+        item["note"] = f"Already integrated as {provider['id']} ({', '.join(provider['implementation'])})"
+        count += 1
+    return count
 
 
 def candidates_from_html(page):
@@ -138,9 +192,8 @@ def claim(data):
         except Exception:
             if not data["items"]:
                 raise
+    changed = False
     for item in data["items"]:
-        if not item.get("listed", True):
-            continue
         if item.get("status") == "claimed":
             until = datetime.fromisoformat(item["lease_until"])
             if now() >= until:
@@ -149,14 +202,20 @@ def claim(data):
                     item["finished_at"] = iso(now())
                     item["note"] = "Research lease expired three times"
                     item.pop("lease_until", None)
+                    changed = True
                 else:
                     item["status"] = "pending"
-        if item.get("status") == "pending":
+                    changed = True
+    changed = bool(sync_index(data)) or changed
+    for item in data["items"]:
+        if item.get("listed", True) and item.get("status") == "pending":
             item["status"] = "claimed"
             item["attempts"] = item.get("attempts", 0) + 1
             item["lease_until"] = iso(now() + timedelta(hours=LEASE_HOURS))
             save(data)
             return {key: item[key] for key in ("id", "name", "url", "section", "category", "attempts", "lease_until")}
+    if changed:
+        save(data)
     return None
 
 
@@ -183,8 +242,10 @@ def finish(candidate_id, status, note="", evidence="", task_id=""):
 def main():
     parser = argparse.ArgumentParser()
     command = parser.add_subparsers(dest="command", required=True)
-    for name in ("refresh", "claim", "status"):
+    for name in ("refresh", "claim", "status", "index", "sync-index"):
         command.add_parser(name)
+    lookup = command.add_parser("lookup")
+    lookup.add_argument("site", help="Site URL or hostname")
     done = command.add_parser("finish")
     done.add_argument("id")
     done.add_argument("status", choices=("unavailable", "blocked", "skipped"))
@@ -199,6 +260,17 @@ def main():
             print(json.dumps({"count": refresh(data), "source": SOURCE}))
         elif args.command == "claim":
             print(json.dumps({"candidate": claim(data)}))
+        elif args.command == "index":
+            print(json.dumps({"providers": index_entries(data)}, ensure_ascii=False, indent=2))
+        elif args.command == "lookup":
+            host = site_host(args.site)
+            matches = [row for row in index_entries(data) if host in {site_host(origin) for origin in row.get("origins", [row.get("url", "")])}]
+            print(json.dumps({"host": host, "matches": matches}, ensure_ascii=False, indent=2))
+        elif args.command == "sync-index":
+            skipped = sync_index(data)
+            if skipped:
+                save(data)
+            print(json.dumps({"skipped": skipped, "total": len(data["items"])}))
         else:
             counts = {}
             for item in data["items"]:

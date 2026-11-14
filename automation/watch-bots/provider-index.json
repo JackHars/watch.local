@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "integrated": [
+    {
+      "id": "cinejoy",
+      "name": "Cinejoy",
+      "kind": "vod",
+      "origins": ["https://cinejoy.pk", "https://api.wing.st"],
+      "implementation": ["api/platform.mjs", "api/providers.mjs"]
+    },
+    {
+      "id": "atlantic",
+      "name": "Atlantic",
+      "kind": "vod",
+      "origins": ["https://atlantic.st"],
+      "implementation": ["api/providers.mjs"]
+    },
+    {
+      "id": "tvids",
+      "name": "Tvids",
+      "kind": "vod",
+      "origins": ["https://play.xpass.top"],
+      "implementation": ["api/providers.mjs"]
+    },
+    {
+      "id": "zstream",
+      "name": "Zstream",
+      "kind": "vod",
+      "origins": ["https://cinecat.eu", "https://api.zstream.mov"],
+      "implementation": ["api/providers.mjs"]
+    },
+    {
+      "id": "vidrift",
+      "name": "Vidrift network",
+      "kind": "vod",
+      "origins": [
+        "https://7movies.ac", "https://7movies.ws", "https://anicine.sbs",
+        "https://cinemove.cc", "https://cinevibe.cc", "https://freekz.to",
+        "https://streamgoblin.cc", "https://thugtv.online", "https://embed.vidrift.net"
+      ],
+      "implementation": ["api/providers.mjs"]
+    },
+    {
+      "id": "vidsrc",
+      "name": "VidSrc",
+      "kind": "vod",
+      "origins": ["https://vidsrc.sh"],
+      "implementation": ["api/providers.mjs"]
+    },
+    {
+      "id": "reelix",
+      "name": "Reelix",
+      "kind": "vod",
+      "origins": ["https://reelix.ac", "https://vidcore.io"],
+      "implementation": ["api/reelix.mjs", "api/providers.mjs"]
+    },
+    {
+      "id": "zlive",
+      "name": "ZLive",
+      "kind": "channels",
+      "origins": ["https://zlive.st", "https://iptv.zlive.st"],
+      "implementation": ["api/zlive.mjs", "api/zlive-resolver.mjs"]
+    },
+    {
+      "id": "timstreams",
+      "name": "Tim Streams",
+      "kind": "channels",
+      "origins": ["https://tim-streams.com"],
+      "implementation": ["api/timstreams.mjs"]
+    },
+    {
+      "id": "strmfree",
+      "name": "StreamFree",
+      "kind": "sports",
+      "origins": ["https://strmfree.pk", "https://strmfree.st", "https://streamfree.top", "https://strmfree.link"],
+      "implementation": ["api/strmfree.mjs", "api/sports-playback.mjs"]
+    },
+    {
+      "id": "sports-primary",
+      "name": "Live sports primary source",
+      "kind": "sports",
+      "origins": ["https://streameasto.cx", "https://streamseast.ws", "https://streamking.cx"],
+      "implementation": ["api/sports.mjs", "api/sports-playback.mjs"]
+    }
+  ]
+}

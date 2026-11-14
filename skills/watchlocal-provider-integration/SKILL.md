@@ -54,7 +54,8 @@ If the skill lives elsewhere, use its absolute script path. The helper locates w
 3. Wire the adapter into the existing resolver, settings, status/UI labels, and IPTV routing as specified in that reference. Keep existing provider order and disabled choices. State any default/migration behavior explicitly in the implementation report.
 4. Prove provider-to-provider fallback and later playback recovery through actual local HTTP routes. A resolver returning a URL is insufficient.
 5. Run [the validation checklist](references/validation.md) and inspect the diff.
-6. For a completed integration, commit the task's files and push the commit to the checkout's GitHub upstream. Verify that the remote branch contains the exact commit, then summarize evidence and remaining limitations. Follow the publication steps in the validation checklist; do not leave a successful integration only in the local worktree.
+6. Update `automation/watch-bots/provider-index.json` with the new provider's exact public site origins and implementation paths, or add newly supported origins to an existing entry. The index records code-backed integrations, not a guarantee that an external site is currently online. Do not list transient CDN hosts or signed media URLs.
+7. For a completed integration, commit the task's files and push the commit to the checkout's GitHub upstream. Verify that the remote branch contains the exact commit, then summarize evidence and remaining limitations. Follow the publication steps in the validation checklist; do not leave a successful integration only in the local worktree.
 
 For a simple JSON-to-HLS VOD source, adapt [the executable adapter example](assets/vod-adapter.mjs). It deliberately injects `loadSources`: implement that function from the verified API contract. The example contains **no real endpoint or credentials**. Channel and sports references contain their own contract examples; do not use the VOD return shape for live sources.
 
