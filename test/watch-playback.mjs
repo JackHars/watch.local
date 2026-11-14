@@ -97,3 +97,26 @@ test('closing or starting over cancels a pending mobile resume, and failed looku
     f.event(f.video, 'pause'); await tracker.stop(); assert.equal(f.calls.length, count); assert.equal(errors.length, 1);
   } finally { f.restore(); }
 });
+
+test('provider replacement resumes the same episode without saving the temporary zero position', async () => {
+  const f=fixture();try{
+    Object.assign(f.video,{readyState:1,duration:2700});
+    const tracker=trackPlayback(f.video,{item,progress:{position:600}});
+    f.event(f.video,'playing');f.video.currentTime=650;f.event(f.video,'timeupdate');
+    f.video.error={code:3};f.video.currentTime=0;tracker.switchSource();
+    f.event(f.video,'pause');f.event(f.video,'seeked');assert.ok(f.calls.every(c=>c.payload.position>=600));
+    f.video.error=null;f.event(f.video,'loadedmetadata');assert.equal(f.video.currentTime,650);
+    f.event(f.video,'playing');f.advance(11000);f.video.currentTime=660;f.event(f.video,'timeupdate');
+    await tracker.stop();assert.equal(f.calls.at(-1).payload.position,660);
+    assert.ok(f.calls.every(c=>c.payload.profileId===item.profileId&&c.payload.episode===3));
+  }finally{f.restore();}
+});
+test('a saved-position lookup arriving during provider replacement waits for the new media timeline', async()=>{
+  const f=fixture();let ready;try{
+    Object.assign(f.video,{readyState:1,duration:2700});
+    const tracker=trackPlayback(f.video,{item,progress:new Promise(r=>ready=r)});
+    tracker.switchSource();ready({position:600});await Promise.resolve();assert.equal(f.video.currentTime,0);
+    f.event(f.video,'loadedmetadata');assert.equal(f.video.currentTime,600);
+    f.event(f.video,'playing');await tracker.stop();assert.ok(f.calls.every(c=>c.payload.position===600));
+  }finally{f.restore();}
+});

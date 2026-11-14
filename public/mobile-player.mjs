@@ -16,7 +16,7 @@ export async function mobilePlaybackError(source, { fetchResource = fetch, signa
 // Call start() in the tap handler, before awaiting provider or progress requests.
 // iPhone automatically presents videos without playsinline in its native player.
 export function mobilePlayer(video, { onExit = () => {}, onBlocked = () => {}, document: doc = document } = {}) {
-  let stopped = false, entered = false;
+  let stopped = false, entered = false, replacing = false;
   const listeners = [];
   const listen = (target, event, callback) => {
     target.addEventListener(event, callback);
@@ -25,6 +25,7 @@ export function mobilePlayer(video, { onExit = () => {}, onBlocked = () => {}, d
   const exit = () => {
     if (stopped || video.webkitPresentationMode === 'picture-in-picture') return;
     entered = false;
+    if (video.error || replacing) return;
     onExit();
   };
   listen(video, 'webkitbeginfullscreen', () => { entered = true; });
@@ -45,11 +46,11 @@ export function mobilePlayer(video, { onExit = () => {}, onBlocked = () => {}, d
     try { video.requestFullscreen?.()?.catch(() => {}); } catch { /* Native controls remain available. */ }
   }
   // iPad may require metadata before accepting its native fullscreen request.
-  listen(video, 'playing', () => { if (!entered) fullscreen(); });
+  listen(video, 'playing', () => { replacing = false; if (!entered) fullscreen(); });
   return {
     start(source) {
       if (stopped) return;
-      if (source) video.src = source;
+      if (source) { replacing = Boolean(video.src); video.src = source; }
       // Both operations run in the original user gesture, even if loading is slow.
       try {
         video.play()?.catch(error => {

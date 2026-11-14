@@ -40,6 +40,7 @@ const files = new Map([
   ['/profiles.mjs', ['../public/profiles.mjs','text/javascript']],
   ['/boot.js', ['../public/boot.js','text/javascript']],
   ['/request.mjs', ['../public/request.mjs','text/javascript']],
+  ['/playback-recovery.mjs', ['../public/playback-recovery.mjs','text/javascript']],
   ['/preferences.mjs', ['../public/preferences.mjs','text/javascript']],
   ['/home.mjs', ['../public/home.mjs','text/javascript']],
   ['/live.mjs', ['../public/live.mjs','text/javascript']],
@@ -125,6 +126,7 @@ export async function handleWeb(req, res) {
       sameOrigin(req);
       const input = Object.fromEntries(url.searchParams);
       input.fresh = input.fresh === '1';
+      input.exclude = input.exclude ? input.exclude.split(',') : [];
       await watchProgressStore.profile(user.id, input.profileId);
       if (input.requestId && !/^[a-f0-9]{32}$/.test(input.requestId)) throw problem(400, 'Invalid playback request.');
       // Native players may probe the source repeatedly. Reuse the resolved URL
@@ -143,7 +145,7 @@ export async function handleWeb(req, res) {
       if (error) throw error;
       // Native <video> errors hide HTTP response bodies. The UI can ask for the
       // outcome of the same tap without resolving another stream or downloading it.
-      if (req.headers.accept === 'application/json') { json(res, 200, { ready: true }); return true; }
+      if (req.headers.accept === 'application/json') { json(res, 200, { ready: true, ...(stream.attemptedProviders ? { provider: stream.provider, attemptedProviders: stream.attemptedProviders } : {}) }); return true; }
       if (!res.destroyed) { res.writeHead(302, { Location: stream.url, 'Cache-Control': 'no-store' }); res.end(); }
       return true;
     }

@@ -8,6 +8,7 @@ import { createUpdatePrompt } from './updates.mjs';
 import { createRepairTerminal } from './update-repair.mjs';
 import { watchlistPreference } from './preferences.mjs';
 import { fetchJSON } from './request.mjs';
+import { createPlaybackRecovery } from './playback-recovery.mjs';
 // Safari can mark a tapped select as focus-visible. Track how focus was
 // reached without blurring controls, blocking selection, or changing the picker.
 document.addEventListener('pointerdown',event=>{
@@ -288,7 +289,7 @@ function attachHls(video,url,onReady,fail){
   const engine=hls=new Hls({maxBufferLength:30,manifestLoadingTimeOut:180000});
   engine.loadSource(url);engine.attachMedia(video);
   engine.on(Hls.Events.MANIFEST_PARSED,onReady);
-  engine.on(Hls.Events.ERROR,(_,event)=>{if(event.fatal)fail('The stream stopped. Try again to request a fresh source.');});
+  engine.on(Hls.Events.ERROR,(_,event)=>{if(engine===hls&&event.fatal)fail('The stream stopped. Try again to request a fresh source.');});
   engine.on(Hls.Events.AUDIO_TRACKS_UPDATED,()=>{const select=$('#audio-track');select.hidden=engine.audioTracks.length<2;select.innerHTML=engine.audioTracks.map((t,i)=>`<option value="${i}">${esc(t.name||t.lang||'Audio '+(i+1))}</option>`).join('');select.onchange=()=>engine.audioTrack=Number(select.value);});
   engine.on(Hls.Events.SUBTITLE_TRACKS_UPDATED,()=>{const select=$('#subtitle-track');select.hidden=!engine.subtitleTracks.length;select.innerHTML='<option value="-1">Subtitles off</option>'+engine.subtitleTracks.map((t,i)=>`<option value="${i}">${esc(t.name||t.lang||'Subtitle '+(i+1))}</option>`).join('');select.onchange=()=>engine.subtitleTrack=Number(select.value);});
 }
@@ -306,16 +307,34 @@ function playOnMobile(data,identity,player,saved,controller,fresh){
     playbackProgress=trackPlayback(video,{item,progress,onError:toast});
     api(`title?type=${data.type}&id=${data.id}`,{signal:controller.signal}).then(metadata=>{if(!controller.signal.aborted)Object.assign(item,{title:title(metadata),poster_path:metadata.poster_path,backdrop_path:metadata.backdrop_path});}).catch(()=>{});
   }
-  mobileSession=mobilePlayer(video,{onExit:()=>{if(!controller.signal.aborted)closePlayer();},onBlocked:()=>{status.textContent='Tap Open fullscreen to begin.';}});
+  let recovery;
+  mobileSession=mobilePlayer(video,{onExit:()=>{if(!controller.signal.aborted&&!recovery?.busy)closePlayer();},onBlocked:()=>{status.textContent='Tap Open fullscreen to begin.';}});
   video.addEventListener('playing',()=>{status.classList.remove('error');status.textContent='Playing';});
-  video.addEventListener('error',async()=>{if(controller.signal.aborted)return;mobileSession?.stop();status.textContent='Checking stream availability…';fail(await mobilePlaybackError(source,{signal:controller.signal}));});
   if(fresh)query.set('fresh','1');
   query.set('requestId',[...crypto.getRandomValues(new Uint8Array(16))].map(value=>value.toString(16).padStart(2,'0')).join(''));
   const source='/ui/playback.m3u8?'+query;
+  const attach=out=>{
+    hls?.destroy();hls=null;
+    $('[data-action="open-fullscreen"]',player).style.display='';
+    if(nativeHls(video,out.provider))mobileSession.start(out.url);
+    else if(window.Hls?.isSupported())attachHls(video,out.url,()=>mobileSession.start(),handleFailure);
+    else fail('This browser does not support HLS playback.');
+  };
+  if(vod)recovery=createPlaybackRecovery({signal:controller.signal,
+    inspect:async()=>{const {response,data}=await fetchJSON(source,{headers:{Accept:'application/json'},signal:controller.signal,timeoutMs:190000});if(!response.ok)throw Error(data.error||'No playable source is available.');return data;},
+    resolve:exclude=>api('play',{method:'POST',body:{...identity,fresh:true,exclude},signal:controller.signal}),
+    beforeSwitch:()=>playbackProgress?.switchSource(),replace:attach,
+    trying:()=>{status.classList.remove('error');status.textContent='Trying another provider…';},failed:fail});
+  const handleFailure=async message=>{
+    if(controller.signal.aborted)return;
+    if(recovery)return recovery.recover(message);
+    mobileSession?.stop();status.textContent='Checking stream availability…';fail(await mobilePlaybackError(source,{signal:controller.signal}));
+  };
+  video.addEventListener('error',()=>handleFailure('This stream could not be played.'));
   // Do not await progress or stream resolution here: playback must start in this tap.
   if(nativeHls(video,data.provider))mobileSession.start(source);
   else if(window.Hls?.isSupported()){
-    attachHls(video,source,()=>video.play().catch(()=>{if(!controller.signal.aborted)status.textContent='Tap Open fullscreen to begin.';}),fail);
+    attachHls(video,source,()=>video.play().catch(()=>{if(!controller.signal.aborted)status.textContent='Tap Open fullscreen to begin.';}),handleFailure);
     mobileSession.start();
   }else fail('This browser does not support HLS playback.');
 }
@@ -334,10 +353,22 @@ async function play(data,fresh=false){if(!state.profile)return profilesPage();co
     const video=$('video',player),status=$('.player-status',player);const fail=message=>{status.textContent=message;status.classList.add('error');};
     if(vod&&history){const metadata=history.progress||data,item={...identity,title:title(metadata),backdrop_path:metadata.backdrop_path,poster_path:metadata.poster_path};playbackProgress=trackPlayback(video,{item,progress:history.progress,onError:toast});details.then(metadata=>{if(metadata&&!controller.signal.aborted)Object.assign(item,{title:title(metadata),backdrop_path:metadata.backdrop_path,poster_path:metadata.poster_path});});}
     else if(vod)toast('Your saved place could not be loaded. Try again to resume.');
-    video.addEventListener('playing',()=>{status.classList.remove('error');status.textContent=`Playing from ${names[out.provider]||out.provider}`;});video.addEventListener('error',()=>fail('This browser could not play the video. Try again or use your IPTV app.'));
-    if(nativeHls(video,out.provider)){video.src=out.url;video.play().catch(()=>{status.textContent='Press play to begin.';});}
-    else if(window.Hls?.isSupported())attachHls(video,out.url,()=>video.play().catch(()=>{status.textContent='Press play to begin.';}),fail);
-    else fail('HLS playback is not supported in this browser. Use the IPTV connection details in Settings.');
+    let selected=out,recovery;
+    const handleFailure=message=>{if(!controller.signal.aborted)(recovery?recovery.recover(message):fail(message));};
+    const attach=stream=>{
+      hls?.destroy();hls=null;selected=stream;
+      const start=()=>video.play().catch(error=>{if(!controller.signal.aborted&&error.name==='NotAllowedError')status.textContent='Press play to begin.';});
+      if(nativeHls(video,stream.provider)){video.src=stream.url;start();}
+      else if(window.Hls?.isSupported())attachHls(video,stream.url,start,handleFailure);
+      else fail('HLS playback is not supported in this browser. Use the IPTV connection details in Settings.');
+    };
+    if(vod)recovery=createPlaybackRecovery({current:out,signal:controller.signal,
+      resolve:exclude=>api('play',{method:'POST',body:{...identity,fresh:true,exclude},signal:controller.signal}),
+      beforeSwitch:()=>playbackProgress?.switchSource(),replace:attach,
+      trying:()=>{status.classList.remove('error');status.textContent='Trying another provider…';},failed:fail});
+    video.addEventListener('playing',()=>{status.classList.remove('error');status.textContent=`Playing from ${names[selected.provider]||selected.provider}`;});
+    video.addEventListener('error',()=>handleFailure('This browser could not play the video.'));
+    attach(out);
   }catch(e){if(controller.signal.aborted||!$('.player-loading',player))return;$('.player-loading',player).innerHTML=`${icon('info')}<h2>Playback unavailable</h2><p>${esc(e.message)}</p><button class="btn" data-action="retry-play">Try again</button>`;}
 }
 $('#player').addEventListener('cancel',e=>{e.preventDefault();closePlayer();});

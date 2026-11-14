@@ -172,3 +172,32 @@ test('HLS validation rejects PNG bait and validates AES-128 encrypted segments',
   const bad = createProviderContext({ signal: AbortSignal.timeout(1000), fetchResource: mockProvider('atlantic', 'movie', { bait: true }).fetchResource });
   await assert.rejects(bad.accept('https://cdn.test/master', {}, 'bad'), /not video/);
 });
+
+test('source validation checks the selected default audio and initialization before accepting playable video', async () => {
+  let broken='playlist';const calls=[];
+  const ctx=createProviderContext({fetchResource:async url=>{
+    const path=new URL(url).pathname;calls.push(path);
+    if(path==='/master')return new Response('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="main",NAME="Other",DEFAULT=NO,URI="unused.m3u8"\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="main",NAME="English",DEFAULT=YES,URI="audio.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=100,AUDIO="main"\nvideo.m3u8\n');
+    if(path==='/video.m3u8')return new Response(leaf);
+    if(path==='/seg.ts')return new Response(ts);
+    if(path==='/audio.m3u8')return broken==='playlist'?new Response('Missing episode audio',{status:404}):new Response('#EXTM3U\n#EXT-X-MAP:URI="audio-init.mp4"\n#EXTINF:6,\naudio.m4s\n#EXT-X-ENDLIST\n');
+    if(path==='/audio-init.mp4')return broken==='init'?new Response('<html>Missing</html>'):new Response(Buffer.from('000000186674797069736f36','hex'));
+    if(path==='/audio.m4s')return new Response(broken==='segment'?'<html>Error</html>':Buffer.from('000000146d6f6f660000000000','hex'));
+    throw Error('Unexpected audio rendition');
+  }});
+  await assert.rejects(ctx.accept('https://video.test/master',{},'test'),/404/);
+  broken='init';await assert.rejects(ctx.accept('https://video.test/master',{},'test'),/initialization/);
+  broken='segment';await assert.rejects(ctx.accept('https://video.test/master',{},'test'),/not audio/);
+  broken=false;await ctx.accept('https://video.test/master',{},'test');
+  assert.ok(!calls.includes('/unused.m3u8'),'An unused optional language must not discard the working default track');
+});
+
+test('failed-provider exclusions are validated and invalidate only the failed episode cache', async () => {
+  let calls=0;const resolve=createProviderResolver({cinejoy:async()=>{calls++;return {master:'https://fixture.test/master'};}});
+  const input={tmdb:550,kind:'series',season:1};
+  for(const episode of [2,3,4])await resolve({...input,episode});
+  for(const exclude of ['cinejoy',['invalid'],{},Array(8).fill('cinejoy')])await assert.rejects(resolve({...input,episode:3,exclude}),{status:400});
+  await assert.rejects(resolve({...input,episode:3,provider:'cinejoy',exclude:['cinejoy']}),/No other enabled provider/);
+  for(const episode of [2,4])assert.equal((await resolve({...input,episode})).cached,true);
+  assert.equal((await resolve({...input,episode:3})).cached,false);assert.equal(calls,4);
+});

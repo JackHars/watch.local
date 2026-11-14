@@ -79,35 +79,63 @@ export function createProviderContext({ signal, fetchResource = (...args) => fet
     const root = await read(url, headers);
     let playlist = root.bytes.toString('utf8'), base = root.url;
     if (!playlist.trimStart().startsWith('#EXTM3U')) throw new Error('Source did not return HLS');
-    const variants = variantsOf(playlist, base);
+    const variants = variantsOf(playlist, base), audioPlaylists = new Set();
     // Validate the same highest rendition that the IPTV relay will expose.
     for (let depth = 0; /#EXT-X-STREAM-INF:/.test(playlist); depth++) {
       if (depth >= 3) throw new Error('Too many nested HLS masters');
-      const best = variantsOf(highestQualityPlaylist(playlist), base)[0];
+      const selected = highestQualityPlaylist(playlist);
+      const group = selected.match(/#EXT-X-STREAM-INF:[^\r\n]*\bAUDIO="([^"]+)"/)?.[1];
+      if (group) {
+        const tracks = selected.split(/\r?\n/).filter(line => line.startsWith('#EXT-X-MEDIA:') && /(?:[:,])TYPE=AUDIO(?:,|$)/.test(line) && line.match(/GROUP-ID="([^"]+)"/)?.[1] === group);
+        const track = tracks.find(line => /(?:[:,])DEFAULT=YES(?:,|$)/.test(line)) || tracks.find(line => /(?:[:,])AUTOSELECT=YES(?:,|$)/.test(line)) || tracks[0];
+        const uri = track?.match(/URI="([^"]+)"/)?.[1];
+        if (uri) audioPlaylists.add(httpURL(uri, base));
+      }
+      const best = variantsOf(selected, base)[0];
       if (!best) throw new Error('HLS master has no variant');
       const next = await read(best.media, headers);
       base = next.url; playlist = next.bytes.toString('utf8');
       if (!playlist.trimStart().startsWith('#EXTM3U')) throw new Error('Invalid HLS variant');
     }
-    const lines = playlist.split(/\r?\n/).map(l => l.trim());
-    const segmentIndex = lines.findIndex(l => l && !l.startsWith('#'));
-    if (segmentIndex < 0 || !playlist.includes('#EXTINF:')) throw new Error('HLS has no media segments');
-    let bytes = (await read(httpURL(lines[segmentIndex], base), headers, { peek: true, limit: 4096 })).bytes;
-    const keyLine = lines.slice(0, segmentIndex).filter(l => l.startsWith('#EXT-X-KEY:')).at(-1);
-    if (keyLine && !/METHOD=NONE(?:,|$)/.test(keyLine)) {
-      if (!/METHOD=AES-128(?:,|$)/.test(keyLine)) throw new Error('Unsupported HLS encryption');
-      const uri = keyLine.match(/URI="([^"]+)"/)?.[1];
-      if (!uri) throw new Error('Missing HLS key');
-      const key = (await read(httpURL(uri, base), headers, { limit: 16 })).bytes;
-      const iv = Buffer.alloc(16), explicit = keyLine.match(/IV=0x([a-f\d]+)/i)?.[1];
-      if (explicit) {
-        if (explicit.length > 32) throw new Error('Invalid HLS IV');
-        Buffer.from(explicit.padStart(32, '0'), 'hex').copy(iv);
-      } else iv.writeBigUInt64BE(BigInt(playlist.match(/#EXT-X-MEDIA-SEQUENCE:(\d+)/)?.[1] || 0), 8);
-      const cipher = createDecipheriv('aes-128-cbc', key, iv); cipher.setAutoPadding(false);
-      bytes = cipher.update(bytes.subarray(0, bytes.length - bytes.length % 16));
+    async function verifyLeaf(playlist, base, audio = false) {
+      const lines = playlist.split(/\r?\n/).map(l => l.trim());
+      const segmentIndex = lines.findIndex(l => l && !l.startsWith('#'));
+      if (segmentIndex < 0 || !playlist.includes('#EXTINF:')) throw new Error('HLS has no media segments');
+      const map = lines.slice(0, segmentIndex).filter(l => l.startsWith('#EXT-X-MAP:')).at(-1)?.match(/URI="([^"]+)"/)?.[1];
+      if (map) {
+        const init = (await read(httpURL(map, base), headers, { peek: true, limit: 4096 })).bytes;
+        if (!init.length || /^\s*</.test(init.subarray(0, 80).toString()) || init.subarray(0, 4).equals(Buffer.from([137, 80, 78, 71]))) throw new Error('HLS initialization is unavailable');
+      }
+      let bytes = (await read(httpURL(lines[segmentIndex], base), headers, { peek: true, limit: 4096 })).bytes;
+      const keyLine = lines.slice(0, segmentIndex).filter(l => l.startsWith('#EXT-X-KEY:')).at(-1);
+      if (keyLine && !/METHOD=NONE(?:,|$)/.test(keyLine)) {
+        if (!/METHOD=AES-128(?:,|$)/.test(keyLine)) throw new Error('Unsupported HLS encryption');
+        const uri = keyLine.match(/URI="([^"]+)"/)?.[1];
+        if (!uri) throw new Error('Missing HLS key');
+        const key = (await read(httpURL(uri, base), headers, { limit: 16 })).bytes;
+        const iv = Buffer.alloc(16), explicit = keyLine.match(/IV=0x([a-f\d]+)/i)?.[1];
+        if (explicit) {
+          if (explicit.length > 32) throw new Error('Invalid HLS IV');
+          Buffer.from(explicit.padStart(32, '0'), 'hex').copy(iv);
+        } else iv.writeBigUInt64BE(BigInt(playlist.match(/#EXT-X-MEDIA-SEQUENCE:(\d+)/)?.[1] || 0), 8);
+        const cipher = createDecipheriv('aes-128-cbc', key, iv); cipher.setAutoPadding(false);
+        bytes = cipher.update(bytes.subarray(0, bytes.length - bytes.length % 16));
+      }
+      const audioBytes = audio && (bytes.length >= 7 && bytes[0] === 0xff && (bytes[1] & 0xf6) === 0xf0 || bytes.subarray(0, 3).toString() === 'ID3');
+      if (!isVideo(bytes) && !audioBytes) throw new Error(`HLS segment is not ${audio ? 'audio' : 'video'} (empty, HTML, or image bait)`);
     }
-    if (!isVideo(bytes)) throw new Error('HLS segment is not video (empty, HTML, or image bait)');
+    await verifyLeaf(playlist, base);
+    for (const url of audioPlaylists) {
+      let audio = await read(url, headers), text = audio.bytes.toString('utf8');
+      for (let depth = 0; /#EXT-X-STREAM-INF:/.test(text); depth++) {
+        if (depth >= 3) throw new Error('Too many nested audio playlists');
+        const variant = variantsOf(text, audio.url)[0];
+        if (!variant) throw new Error('HLS audio master has no variant');
+        audio = await read(variant.media, headers); text = audio.bytes.toString('utf8');
+      }
+      if (!text.trimStart().startsWith('#EXTM3U')) throw new Error('HLS audio playlist is unavailable');
+      await verifyLeaf(text, audio.url, true);
+    }
     return { master: root.url, headers, server: source, variants, streams: [{ type: 'hls', id: source, playlist: root.url, headers }] };
   }
   return { read, text, json, accept, signal };
@@ -297,6 +325,8 @@ export function createProviderResolver({ cinejoy, getCatalogData, fetchResource,
         input[key] = Number(input[key]);
       }
     } else { input.season = null; input.episode = null; }
+    input.exclude ??= [];
+    if (!Array.isArray(input.exclude) || input.exclude.length > PROVIDERS.length || input.exclude.some(p => !PROVIDERS.includes(p))) throw failure('Invalid failed provider list', 400);
     if (input.provider && !PROVIDERS.includes(input.provider)) throw failure('Unknown provider', 400);
     if (input.provider && !available.includes(input.provider)) throw failure('This provider is disabled', 400);
     if (input.server && !available.includes('cinejoy')) throw failure('Cinejoy is disabled', 400);
@@ -305,7 +335,7 @@ export function createProviderResolver({ cinejoy, getCatalogData, fetchResource,
     const key = JSON.stringify([input.tmdb, input.kind, input.season, input.episode, order, input.server || null, policy || null]);
     // A selected provider that failed at playback must not be reused from cache.
     for (const [entryKey, entry] of cache) {
-      if (entry.value.tmdb === input.tmdb && entry.value.kind === input.kind && input.exclude?.includes(entry.value.provider)) cache.delete(entryKey);
+      if (entry.value.tmdb === input.tmdb && entry.value.kind === input.kind && entry.value.season === input.season && entry.value.episode === input.episode && input.exclude.includes(entry.value.provider)) cache.delete(entryKey);
     }
     const hit = cache.get(key);
     if (!input.fresh && hit && hit.expires > Date.now()) return { ...hit.value, cached: true };
@@ -326,7 +356,7 @@ export function createProviderResolver({ cinejoy, getCatalogData, fetchResource,
         return out;
       } catch (e) { errors[provider] = signal.aborted ? 'Provider timed out or request cancelled' : e.message; }
     }
-    const error = overall.aborted ? failure('Playback resolution timed out or was cancelled', 504) : failure('No provider returned playable HLS');
+    const error = overall.aborted ? failure('Playback resolution timed out or was cancelled', 504) : failure(input.exclude.length ? 'No other enabled provider has a playable source for this title right now.' : 'No provider returned playable HLS');
     error.provider_errors = errors; error.provider_order = tried; throw error;
   };
 }

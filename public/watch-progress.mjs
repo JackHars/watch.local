@@ -3,7 +3,7 @@ export function trackPlayback(video, { item, progress, onError = () => {} }) {
   if (!['movie', 'tv'].includes(item.type)) return null;
   const playbackId = [...crypto.getRandomValues(new Uint8Array(16))].map(value => value.toString(16).padStart(2, '0')).join('');
   let sequence = 0, started = false, stopped = false, lastAttempt = -Infinity, lastSnapshot = '', warned = false;
-  let loadingProgress = typeof progress?.then === 'function', progressFailed = false;
+  let loadingProgress = typeof progress?.then === 'function', progressFailed = false, changingSource = false, lastPosition = 0;
   let resumeAt = !loadingProgress && progress && !progress.completed ? progress.position : 0;
   const requests = new Set(), listeners = [];
   const listen = (target, name, callback) => {
@@ -11,7 +11,7 @@ export function trackPlayback(video, { item, progress, onError = () => {} }) {
     listeners.push(() => target.removeEventListener(name, callback));
   };
   function resume() {
-    if (!resumeAt || !Number.isFinite(video.duration) || video.duration <= 0 || video.readyState < 1) return;
+    if (changingSource || !resumeAt || !Number.isFinite(video.duration) || video.duration <= 0 || video.readyState < 1) return;
     const target = Math.min(resumeAt, Math.max(0, video.duration - 1));
     try {
       video.currentTime = target;
@@ -19,9 +19,10 @@ export function trackPlayback(video, { item, progress, onError = () => {} }) {
     } catch { /* Native HLS may not expose its seekable timeline yet. */ }
   }
   function save(force = false) {
-    if (stopped || loadingProgress || progressFailed || !started || resumeAt || (!force && video.seeking) || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    if (stopped || video.error || changingSource || loadingProgress || progressFailed || !started || resumeAt || (!force && video.seeking) || !Number.isFinite(video.duration) || video.duration <= 0) return;
     const position = Math.round(video.currentTime * 1000) / 1000, duration = Math.round(video.duration * 1000) / 1000;
     if (!Number.isFinite(position) || position < 0) return;
+    if (!video.error) lastPosition = position;
     const snapshot = `${position}:${duration}:${video.ended}`;
     if (snapshot === lastSnapshot || (!force && performance.now() - lastAttempt < 10000)) return;
     lastSnapshot = snapshot; lastAttempt = performance.now();
@@ -38,7 +39,8 @@ export function trackPlayback(video, { item, progress, onError = () => {} }) {
     }).finally(() => requests.delete(request));
     requests.add(request);
   }
-  for (const event of ['loadedmetadata', 'durationchange', 'canplay']) listen(video, event, resume);
+  listen(video, 'loadedmetadata', () => { changingSource = false; resume(); });
+  for (const event of ['durationchange', 'canplay']) listen(video, event, resume);
   listen(video, 'playing', () => { resume(); started = true; save(); });
   listen(video, 'timeupdate', () => save());
   for (const event of ['pause', 'seeked', 'ended']) listen(video, event, () => save(true));
@@ -56,6 +58,12 @@ export function trackPlayback(video, { item, progress, onError = () => {} }) {
     onError('Your saved place could not be loaded. Try again to resume.');
   });
   return {
+    switchSource() {
+      const position = video.error ? lastPosition : video.currentTime;
+      if (!video.error) save(true);
+      if (Number.isFinite(position) && position > 0) resumeAt = position;
+      started = false; changingSource = true;
+    },
     restart() { loadingProgress = false; progressFailed = false; resumeAt = 0; video.currentTime = 0; started = true; save(true); },
     stop() {
       save(true); stopped = true;

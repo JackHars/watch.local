@@ -62,3 +62,14 @@ test('blocked playback provides a retry without muting audio, and PiP does not c
   f.event(f.video, 'webkitendfullscreen'); assert.equal(exits, 0);
   player.stop();
 });
+
+test('native player keeps the playback session during errors and automatic source replacement', () => {
+  const f=fixture();let exits=0;
+  const player=mobilePlayer(f.video,{document:f.doc,onExit:()=>exits++});
+  player.start('/first.m3u8');f.event(f.video,'webkitbeginfullscreen');
+  f.video.error={code:3};f.event(f.video,'webkitendfullscreen');assert.equal(exits,0);
+  player.start('/second.m3u8');f.video.error=null;
+  f.event(f.video,'webkitendfullscreen');assert.equal(exits,0);
+  f.event(f.video,'playing');f.event(f.video,'webkitbeginfullscreen');f.event(f.video,'webkitendfullscreen');assert.equal(exits,1);
+  player.stop();
+});
