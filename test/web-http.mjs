@@ -50,6 +50,8 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/boot.js')).status,200);
   assert.equal((await request('/request.mjs')).status,200);
   assert.equal((await request('/home.mjs')).status,200);
+  assert.equal((await request('/library.mjs')).status,200);
+  assert.equal((await request('/ui/library?type=movie')).status,401);
   assert.equal((await request('/updates.mjs')).status,200);
   assert.equal((await request('/update-repair.mjs')).status,200);
   assert.equal((await request('/ui/updates/repair')).status,401);
@@ -96,6 +98,10 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   r=await request('/ui/browse?type=tv&board=trending&page=2',{cookie:admin});assert.deepEqual((await r.json()).items,[]);
   assert.equal((await request('/ui/browse?type=tv&board=now_playing',{cookie:admin})).status,400);
   assert.equal((await request('/ui/browse?type=movie&board=on_the_air',{cookie:admin})).status,400);
+  assert.equal((await request('/ui/library?type=movie',{cookie:admin})).status,400);
+  r=await request('/ui/library?type=movie&profileId='+ownerProfile.id,{cookie:admin});assert.equal(r.status,200);const library=await r.json();assert.ok(library.genres.some(g=>g.name==='Drama'));assert.ok(library.rows.some(row=>row.key==='trending'));
+  r=await request('/ui/library?type=tv&view=browse&genre=18&sort=title&profileId='+ownerProfile.id,{cookie:admin});assert.equal(r.status,200);assert.deepEqual((await r.json()).items.map(i=>i.id),[1396]);
+  assert.equal((await request('/ui/library?type=tv&sort=invalid&profileId='+ownerProfile.id,{cookie:admin})).status,400);
   r=await request('/ui/title?type=tv&id=1396',{cookie:admin});assert.equal((await r.json()).seasons[0].season_number,2);
   r=await request('/ui/episodes?id=1396&season=2',{cookie:admin});assert.equal((await r.json()).episodes[0].id,972873);
   r=await request('/player_api.php?username=owner&password=password123&action=get_series_info&series_id=1396');const details=await r.json();assert.equal(details.episodes['2'][0].id,'972873');assert.match(details.episodes['2'][0].direct_source,/\/series\/owner\/password123\/972873/);
@@ -118,6 +124,7 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   r=await request('/ui/login',{method:'POST',body:{username:'viewer',password:'viewerpass'}});const cookie=r.headers.get('set-cookie').split(';')[0];
   assert.deepEqual((await request('/ui/profiles',{cookie}).then(r=>r.json())).profiles,[]);
   assert.equal((await request('/ui/progress?profileId='+ownerProfile.id,{cookie})).status,404);
+  assert.equal((await request('/ui/library?type=movie&profileId='+ownerProfile.id,{cookie})).status,404);
   assert.equal((await request('/ui/progress',{cookie,method:'POST',body:progress})).status,404);
   r=await request('/ui/profiles',{cookie,method:'POST',body:{name:'Viewer',color:'#27865f',userId:owner.id}});const viewerProfile=(await r.json()).profile;
   assert.equal((await request('/ui/profiles',{cookie:admin}).then(r=>r.json())).profiles.length,1);

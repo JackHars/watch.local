@@ -9,6 +9,7 @@ import { createRepairTerminal } from './update-repair.mjs';
 import { watchlistPreference } from './preferences.mjs';
 import { fetchJSON } from './request.mjs';
 import { createPlaybackRecovery } from './playback-recovery.mjs';
+import { libraryRoute, libraryPage, mountLibraryPage } from './library.mjs';
 // Safari can mark a tapped select as focus-visible. Track how focus was
 // reached without blurring controls, blocking selection, or changing the picker.
 document.addEventListener('pointerdown',event=>{
@@ -25,7 +26,7 @@ const icon = name => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><
 const state = { user:null, profile:null, profiles:[], lanAccess:false, name:'watch.local', route:0, page:1, query:'', settings:null, items:[], drag:null };
 const repairTerminal = createRepairTerminal({ api });
 const updatePrompt = createUpdatePrompt({ api, ready:()=>state.user?.role==='admin'&&Boolean(state.profile)&&!repairTerminal.active, busy:()=>Boolean(document.querySelector('dialog[open]')) });
-let homeCarousel, stopSearch = () => {};
+let homeCarousel, stopSearch = () => {}, stopLibrary = () => {};
 function stopHomeCarousel(){homeCarousel?.destroy();homeCarousel=null;}
 const img = (path, size='w780') => path && /^\/[\w.\/-]+$/.test(path) ? `https://image.tmdb.org/t/p/${size}${path}` : '';
 const image = (path, alt='', size='w780', eager=false) => path ? `<img src="${esc(img(path,size))}" alt="${esc(alt)}" loading="${eager?'eager':'lazy'}">` : '';
@@ -44,7 +45,7 @@ function toast(message){const el=$('#toast');el.textContent=message;el.classList
 function errorBox(error,{restart=false}={}){return `<div class="empty">${icon('info')}<h2>Something didn’t load</h2><p>${esc(error.message)}</p><button class="btn" data-action="${restart?'restart-app':'reload'}">Try again</button></div>`;}
 function setBusy(button,busy){button.disabled=busy;if(busy){button.dataset.label=button.innerHTML;button.textContent='Saving…';}else if(button.dataset.label)button.innerHTML=button.dataset.label;}
 function nav(){
-  const path=location.hash.slice(1)||'home';
+  const path=(location.hash.slice(1)||'home').split('?')[0];
   const page=path.startsWith('title/movie/')?'movies':path.startsWith('title/tv/')?'series':path.split('/')[0];
   const tabs=[['home','Discover','home'],['movies','Movies','film'],['series','Series','layers'],['live','Live','tv']];
   const link=(key,label,symbol)=>`<a href="#${key}" class="${page===key?'active':''}" ${page===key?'aria-current="page"':''}>${icon(symbol)}<span>${label}</span></a>`;
@@ -180,7 +181,7 @@ async function route({restoreScroll=true}={}){
   const saved=restoreScroll&&changed&&viewPositions.get(next);
   if(saved&&version===state.route&&state.user&&state.profile){window.scrollTo(0,saved.top);document.querySelectorAll('.rail').forEach(rail=>rail.scrollLeft=saved.rails[rail.closest('section')?.querySelector('h2')?.textContent]||0);}
 }
-async function renderRoute(){stopSearch();if(!state.user)return renderLogin();if(!state.profile)return profilesPage();const version=++state.route;const [page,sub,id]=(location.hash.slice(1)||'home').split('/');state.page=1;window.scrollTo(0,0);
+async function renderRoute(){stopSearch();stopLibrary();if(!state.user)return renderLogin();if(!state.profile)return profilesPage();const version=++state.route;const [page,sub,id]=(location.hash.slice(1)||'home').split('?')[0].split('/');state.page=1;window.scrollTo(0,0);
   if(page==='settings'){shell('<div class="page"><div class="empty"><div class="spinner"></div></div></div>');try{await settingsPage(sub||'general',version);}catch(e){if(version===state.route)shell(`<div class="page">${errorBox(e)}</div>`);}return;}
   if(page==='search'){renderSearch(version);return;}
   shell(`<div class="page"><div class="page-head"><h1>${page==='live'?'Live, right now.':page==='movies'?'Movies':page==='series'?'Series':'Your next watch.'}</h1></div><div class="grid">${Array.from({length:10},()=>'<div class="skeleton poster"></div>').join('')}</div></div>`);
@@ -190,10 +191,10 @@ async function renderRoute(){stopSearch();if(!state.user)return renderLogin();if
     }
     if(page==='live'){const data=await api('live');if(version!==state.route)return;shell(livePage(data.items,icon));mountLivePage($('.live-page'),data.items,icon);return;}
     if(['movies','series'].includes(page)){
-      const type=page==='series'?'tv':'movie',category=homeCategories.find(row=>row.type===type&&row.board===sub);
-      const board=category?.board||'popular',label=category?.label||(type==='tv'?'Popular Shows':'Popular Movies');
-      const data=await api(`browse?type=${type}&board=${board}`);if(version!==state.route)return;state.items=data.items;
-      shell(`<div class="page"><div class="page-head"><div><h1>${esc(label)}</h1><p>${esc(category?.subtitle||'Explore popular titles from the catalog.')}</p></div></div><div class="grid" id="catalog-grid">${data.items.map(i=>card(i,true)).join('')}</div>${data.pages>1?`<div class="load-more"><button class="btn ghost" data-action="more" data-type="${type}" data-board="${board}">Load more ${icon('down')}</button></div>`:''}</div>`);return;
+      const type=page==='series'?'tv':'movie',options=libraryRoute(type,location.hash);
+      const data=await api('library?'+new URLSearchParams({...options,profileId:state.profile.id}));if(version!==state.route)return;
+      shell(libraryPage(data,{icon,card,rail,saved:storedList()}));
+      stopLibrary=mountLibraryPage($('.library-page'),data,{api,profileId:state.profile.id,card,onError:toast});return;
     }
     const results=await Promise.allSettled([
       api('browse?type=all&board=trending'),api('progress?profileId='+state.profile.id),

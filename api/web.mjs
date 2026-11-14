@@ -4,11 +4,12 @@ import { join } from 'node:path';
 import { createUpdateControl } from './updates.mjs';
 import { createUpdateRepair } from './update-repair.mjs';
 import { requireSession, sessionUser, requestOrigin, sameOrigin, lanWebUser, login, signOut, issueSession } from './sessions.mjs';
-import { initializeIPTV, browserPlay, browserLive, catalogStatus, refreshCatalog, refreshLive, liveStatus } from './iptv.mjs';
+import { initializeIPTV, browserPlay, browserLive, browserCatalog, catalogStatus, refreshCatalog, refreshLive, liveStatus } from './iptv.mjs';
 import { saveTMDBCredential } from './tmdb.mjs';
 import { getCatalogData } from './platform.mjs';
 import { watchProgressStore } from './watch-progress.mjs';
 import { createContinueWatching } from './continue-watching.mjs';
+import { createLibrary } from './library.mjs';
 import { sportsArtworkOrigins } from './sports.mjs';
 
 const activity = [], started = Date.now();
@@ -16,6 +17,7 @@ const updates = createUpdateControl(join(dataDirectory, 'updates'));
 const repair = createUpdateRepair(join(dataDirectory, 'updates/repair'), { account: id => settingsStore.user(id) });
 const nativeStreams = new Map();
 const continueWatching = createContinueWatching({ store: watchProgressStore, catalog: getCatalogData });
+const library = createLibrary({ catalog: getCatalogData, localCatalog: browserCatalog, history: (user, profile) => watchProgressStore.list(user, profile, { includeCompleted: true }) });
 export function recordActivity(event) { if (event.target === '/ui/activity') return; activity.push({ ...event, at: new Date().toISOString() }); if (activity.length > 200) activity.shift(); }
 const json = (res, status, data) => { if (res.destroyed) return; res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
 async function body(req) {
@@ -43,6 +45,7 @@ const files = new Map([
   ['/playback-recovery.mjs', ['../public/playback-recovery.mjs','text/javascript']],
   ['/preferences.mjs', ['../public/preferences.mjs','text/javascript']],
   ['/home.mjs', ['../public/home.mjs','text/javascript']],
+  ['/library.mjs', ['../public/library.mjs','text/javascript']],
   ['/live.mjs', ['../public/live.mjs','text/javascript']],
   ['/live-model.mjs', ['../public/live-model.mjs','text/javascript']],
   ['/updates.mjs', ['../public/updates.mjs','text/javascript']],
@@ -100,6 +103,9 @@ export async function handleWeb(req, res) {
       const input = await body(req);
       json(res, 200, { progress: await watchProgressStore.save(user.id, input.profileId, input) });
       return true;
+    }
+    if (path === '/ui/library' && req.method === 'GET') {
+      json(res, 200, await library(user.id, url.searchParams.get('profileId'), Object.fromEntries(url.searchParams))); return true;
     }
     if (path === '/ui/browse' && req.method === 'GET') {
       const requestedType = url.searchParams.get('type');

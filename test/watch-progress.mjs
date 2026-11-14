@@ -42,6 +42,7 @@ test('continue watching uses the latest episode, orders recent watches first, an
     await store.save('alice', alice, { ...movie, position: 6900, sequence: 2 });
     assert.deepEqual(await store.list('alice', alice), []);
     assert.equal((await store.get('alice', alice, movie)).completed, true);
+    assert.deepEqual((await store.list('alice', alice, { includeCompleted: true })).map(item => item.key), ['movie:550', 'tv:1396:2:4']);
     // Starting over clears completion and records the newly watched position.
     await store.save('alice', alice, { ...movie, position: 30, sequence: 3 });
     assert.equal((await store.list('alice', alice))[0].position, 30);

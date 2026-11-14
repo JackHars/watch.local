@@ -549,3 +549,4 @@ export async function browserLive() { await initializeIPTV(); return liveTV.brow
 export async function refreshLive() { await initializeIPTV(); return liveTV.refresh({ force: true }); }
 export function liveStatus() { return liveTV?.status() || {}; }
 export function catalogStatus() { return { movies: catalog.movies.length, series: catalog.series.length, updatedAt: catalog.updatedAt, refreshing: Boolean(refreshPromise), progress: refreshProgress || null, errors: catalog.errors?.length || 0 }; }
+export async function browserCatalog(type) { await initializeIPTV(); return type === 'tv' ? catalog.series : catalog.movies; }

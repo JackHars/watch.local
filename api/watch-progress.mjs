@@ -92,7 +92,7 @@ export function createWatchProgressStore(directory) {
       const entry = state.users[userId].progress[profileId]?.[key];
       return entry ? publicProgress(entry) : null;
     },
-    async list(userId, profileId, { includeCompletedSeries = false } = {}) {
+    async list(userId, profileId, { includeCompletedSeries = false, includeCompleted = false } = {}) {
       await initialize(); await queue;
       requireProfile(userId, profileId);
       const latest = new Map();
@@ -103,7 +103,7 @@ export function createWatchProgressStore(directory) {
         const titleKey = `${entry.type}:${entry.id}`;
         if (!latest.has(titleKey)) latest.set(titleKey, entry);
       }
-      return [...latest.values()].filter(entry => entry.position >= 1 && (!entry.completed || includeCompletedSeries && entry.type === 'tv')).slice(0, includeCompletedSeries ? 500 : 50).map(publicProgress);
+      return [...latest.values()].filter(entry => entry.position >= 1 && (!entry.completed || includeCompleted || includeCompletedSeries && entry.type === 'tv')).slice(0, includeCompletedSeries ? 500 : 50).map(publicProgress);
     },
     save(userId, profileId, input) {
       const identity = watchIdentity(input);
