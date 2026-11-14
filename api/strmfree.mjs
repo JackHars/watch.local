@@ -67,8 +67,8 @@ function headersFor(url, player) {
 export function createStrmfreeSource({ fetchResource = fetch, now = Date.now, mirrors = MIRRORS, directoryURL = DIRECTORY } = {}) {
   let hosts = [...mirrors], mirrorsAt = 0, catalog = null, listing, refreshingMirrors, error = '';
   const streams = new Map();
-  async function request(url, signal) {
-    const response = await fetchResource(url, { headers: { 'User-Agent': UA }, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8000)]) : AbortSignal.timeout(8000) });
+  async function request(url, signal, headers = {}) {
+    const response = await fetchResource(url, { headers: { 'user-agent': UA, ...headers }, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8000)]) : AbortSignal.timeout(8000) });
     if (!response.ok) { await response.body?.cancel(); throw fail(`Strmfree returned HTTP ${response.status}.`); }
     let size = 0; const chunks = [];
     for await (const chunk of response.body) { size += chunk.length; if (size > 2 * 1024 * 1024) throw fail('Strmfree response is too large.'); chunks.push(chunk); }
@@ -121,52 +121,89 @@ export function createStrmfreeSource({ fetchResource = fetch, now = Date.now, mi
     cached ||= {}; streams.set(key, cached);
     while (streams.size > 100) streams.delete(streams.keys().next().value);
     cached.pending = (async () => {
-      const metadata = await fromMirror('/get-stream-key/' + key, text => {
-        const data = JSON.parse(text); if (!data || typeof data !== 'object' || Array.isArray(data)) throw fail('Invalid Strmfree stream details.'); return data;
-      }, signal);
-      const info = metadata.value;
-      let manifest, player, expiry = now() + 60000;
-      async function playlist(url) {
-        const result = await request(url, signal);
-        if (!result.text.trimStart().startsWith('#EXTM3U')) throw fail('Strmfree did not return an HLS stream.');
-        for (const line of result.text.split(/\r?\n/)) if (line.trim() && !line.startsWith('#')) rawStrmfreeURL(line.trim(), result.url);
-        return result;
-      }
-      if (info.is_external) {
-        player = `https://${metadata.host}/player/${candidate.category}/${key}`;
-        manifest = await playlist(mediaURL(info.external_url).href);
-      } else {
-        const embed = await fromMirror(`/embed/${candidate.category}/${key}1080p`, text => {
-          const encoded = text.match(/\bconst\s+_0x\s*=\s*(\{[\s\S]*?\})\s*;/)?.[1];
-          if (!encoded) throw fail('Strmfree has no broadcast yet.'); return JSON.parse(encoded);
-        }, signal, metadata.host);
-        // The sign table includes 2160p even for channels with no 4K feed.
-        // Use the API's 1080p default, then verify lower renditions if needed.
-        const qualities = ['1080p', '720p', '540p'].filter(q => embed.value[q]?._t && Number(embed.value[q]._e) * 1000 > now() + 30000);
-        if (!qualities.length) throw fail('Strmfree returned expired or unavailable stream details.');
-        const prefixes = info.server_name === 'origin' || !info.server_name ? ['live'] : ['live-cdn', 'live', ...(info.server_name === 'externalcdn' ? ['live-externalcdn'] : [])];
-        let last;
-        for (const quality of qualities) {
-          const params = embed.value[quality];
-          for (const prefix of prefixes) {
-            signal.throwIfAborted();
-            try {
-              const url = `https://${embed.host}/${prefix}/${key}${quality}/index.m3u8?` + new URLSearchParams(Object.fromEntries(['_t', '_e', '_n'].map(name => [name, String(params[name] || '')])));
-              manifest = await playlist(url); expiry = Math.min(now() + 30 * 60_000, Number(params._e) * 1000 - 30000); break;
-            } catch (error) { last = error; }
+      await refreshMirrors(signal);
+      let last;
+      // A working catalog does not mean this mirror serves working video.
+      // Keep signatures, player headers and video checks on the same mirror,
+      // and only cache a feed after its media bytes have passed preflight.
+      for (const host of hosts) {
+        signal.throwIfAborted();
+        const mirrorSignal = AbortSignal.any([signal, AbortSignal.timeout(6000)]);
+        try {
+          const origin = `https://${host}`;
+          const info = JSON.parse((await request(origin + '/get-stream-key/' + key, mirrorSignal)).text);
+          if (!info || typeof info !== 'object' || Array.isArray(info)) throw fail('Invalid Strmfree stream details.');
+          const player = `${origin}/player/${candidate.category}/${key}`;
+          let targets = null;
+          if (!info.is_external) {
+            // The sign table includes offline renditions. Prefer the source
+            // list used by the upstream player, including numbered backups.
+            let published;
+            try { published = JSON.parse((await request(origin + '/api/v1/sources/' + key, mirrorSignal)).text); }
+            catch { mirrorSignal.throwIfAborted(); /* Older mirrors lack this endpoint. */ }
+            if (published?.stream_key === key && Array.isArray(published.sources)) {
+              targets = published.sources.filter(row => row.live === true).flatMap(row => {
+                try {
+                  const path = new URL(row.url, origin).pathname;
+                  const prefix = `/embed/${candidate.category}/${key}`;
+                  if (!path.startsWith(prefix)) return [];
+                  const match = path.slice(prefix.length).match(/^(2160p|1080p|720p|540p)(_[a-z0-9-]{1,24})?$/);
+                  return match ? [{ quality: match[1], suffix: match[2] || '' }] : [];
+                } catch { return []; }
+              });
+              if (!targets.length) throw fail('Strmfree has not published live video for this event yet.', 503);
+              targets.sort((a, b) => Number.parseInt(b.quality) - Number.parseInt(a.quality));
+            }
           }
-          if (manifest) break;
-        }
-        if (!manifest) throw last || fail('Strmfree has no playable rendition.');
-        player = embed.url;
+          const accept = async (url, player, expiry) => {
+            const manifest = await request(url, mirrorSignal, headersFor(url, player));
+            if (!manifest.text.trimStart().startsWith('#EXTM3U')) throw fail('Strmfree did not return an HLS stream.');
+            for (const line of manifest.text.split(/\r?\n/)) if (line.trim() && !line.startsWith('#')) rawStrmfreeURL(line.trim(), manifest.url);
+            const stream = { url: manifest.url, headers: headersFor(manifest.url, player), playback: { provider: 'strmfree', key, category: candidate.category, player, root: manifest.url } };
+            // Resolve raw segment references directly here: calling source.media
+            // would wait on this same in-flight open() and deadlock.
+            await probeSportsStream(stream, { fetchResource, signal: mirrorSignal, media: async value => {
+              const target = rawStrmfreeURL(value, manifest.url);
+              return { url: target, headers: headersFor(target, player) };
+            } });
+            cached.stream = stream; cached.expires = expiry; return stream;
+          };
+          if (info.is_external) return await accept(mediaURL(info.external_url).href, player, now() + 60000);
+          targets ||= ['1080p', '720p', '540p'].map(quality => ({ quality, suffix: '' }));
+          const tables = new Map();
+          const prefixes = info.server_name === 'origin' || !info.server_name ? ['live'] : ['live-cdn', 'live', ...(info.server_name === 'externalcdn' ? ['live-externalcdn'] : [])];
+          let renditionError;
+          for (const target of targets) {
+            mirrorSignal.throwIfAborted();
+            try {
+              let embed = tables.get(target.suffix);
+              if (!embed) {
+                const result = await request(`${origin}/embed/${candidate.category}/${key}${target.quality}${target.suffix}`, mirrorSignal);
+                const encoded = result.text.match(/\bconst\s+_0x\s*=\s*(\{[\s\S]*?\})\s*;/)?.[1];
+                if (!encoded) throw fail('Strmfree has no broadcast yet.');
+                embed = { table: JSON.parse(encoded), url: result.url }; tables.set(target.suffix, embed);
+              }
+              const params = embed.table[target.quality];
+              if (!params?._t || !(Number(params._e) * 1000 > now() + 30000)) continue;
+              for (const prefix of prefixes) {
+                mirrorSignal.throwIfAborted();
+                try {
+                  const url = `${origin}/${prefix}/${key}${target.quality}${target.suffix}/index.m3u8?` + new URLSearchParams(Object.fromEntries(['_t', '_e', '_n'].map(name => [name, String(params[name] || '')])));
+                  return await accept(url, embed.url, Math.min(now() + 30 * 60_000, Number(params._e) * 1000 - 30000));
+                } catch (error) { renditionError = error; }
+              }
+            } catch (error) { renditionError = error; }
+          }
+          throw renditionError || fail('Strmfree returned expired or unavailable stream details.');
+        } catch (error) { last = error; }
       }
-      const stream = { url: manifest.url, headers: headersFor(manifest.url, player), playback: { provider: 'strmfree', key, category: candidate.category, player, root: manifest.url } };
-      cached.stream = stream; cached.expires = expiry; return stream;
+      signal.throwIfAborted();
+      throw last || fail('Strmfree has no playable broadcast for this event.', 503);
     })().finally(() => { cached.pending = null; });
     return cached.pending;
   }
   const source = {
-    events, open,
+    events, open, validatesStreams: true,
     status: () => ({ events: catalog?.events.length || 0, updatedAt: catalog?.at || null, error }),
     async resolve(event, options = {}) {
       const candidate = matchStrmfreeEvent(event, await events(options));

@@ -24,7 +24,7 @@ export function sportsMediaURL(url, playback, current = playback) {
 export function createSportsPlayback({ request, now = Date.now }) {
   const sessions = new Map(), streamFree = new Map();
   const headersFor = player => ({ referer: player, origin: new URL(player).origin });
-  async function freeSource(player, page) {
+  async function freeSource(player, page, { verify = async () => {}, signal } = {}) {
     let item = streamFree.get(player);
     if (!item) {
       item = { value: null, pending: null, renewAt: 0 }; streamFree.set(player, item);
@@ -50,12 +50,15 @@ export function createSportsPlayback({ request, now = Date.now }) {
           .map(prefix => `${prefix}${slug}${quality}${suffix}/index.m3u8`);
       let last;
       for (const path of paths) {
+        signal?.throwIfAborted();
         try {
           const url = new URL(httpURL(path, player));
           if (!data.is_external) for (const key of ['_t', '_e', '_n']) if (params?.[key] != null) url.searchParams.set(key, String(params[key]));
           const manifest = await request(url.href, player);
           if (!manifest.text.trimStart().startsWith('#EXTM3U')) throw problem('The sports source did not return an HLS playlist.');
-          item.value = { url: url.href, headers: headersFor(player), playback: { provider: 'streamfree', player, root: url.href } };
+          const stream = { url: url.href, headers: headersFor(player), playback: { provider: 'streamfree', player, root: url.href } };
+          await verify(stream);
+          item.value = stream;
           item.renewAt = Math.min(now() + 1800000, params?._e ? Number(params._e) * 1000 - 60000 : Infinity);
           return item.value;
         } catch (error) { last = error; }
@@ -110,8 +113,8 @@ export function createSportsPlayback({ request, now = Date.now }) {
     return item.pending;
   }
   return {
-    async resolve(page, player, referer) {
-      if (/sfFetch\(['"]\/get-stream-key\//.test(page)) return freeSource(httpURL(player), page);
+    async resolve(page, player, referer, { verify = async () => {}, signal } = {}) {
+      if (/sfFetch\(['"]\/get-stream-key\//.test(page)) return freeSource(httpURL(player), page, { verify, signal });
       const root = load(page)('#scp[data-key][data-hls]');
       const key = root.attr('data-key');
       if (!key || !/^[a-z0-9]{8,80}$/i.test(key)) return null;
@@ -119,17 +122,20 @@ export function createSportsPlayback({ request, now = Date.now }) {
       const auth = await authorize(context);
       let last;
       for (const source of auth.sources.slice(0, 4)) {
+        signal?.throwIfAborted();
         try {
           const result = await request(source.url, player);
           if (!result.text.trimStart().startsWith('#EXTM3U')) throw problem('The sports source did not return an HLS playlist.');
-          return { url: source.url, headers: headersFor(player), playback: { ...context, source: source.id, root: source.url } };
+          const stream = { url: source.url, headers: headersFor(player), playback: { ...context, source: source.id, root: source.url } };
+          await verify(stream); return stream;
         } catch (error) { last = error; }
       }
       throw last;
     },
-    async media(url, context) {
+    async media(url, context, { renew = true } = {}) {
       if (context.provider === 'streamfree') {
-        const current = await freeSource(context.player), target = new URL(httpURL(url));
+        const current = renew ? await freeSource(context.player) : { url: context.root, headers: headersFor(context.player), playback: context };
+        const target = new URL(httpURL(url));
         // The player's manifest includes its own CDN as a segment fallback.
         // Use that MPEG-TS feed directly: the other CDN may return image bait,
         // and native players cannot run the page's JavaScript fallback loader.

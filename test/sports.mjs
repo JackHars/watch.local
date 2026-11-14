@@ -160,3 +160,33 @@ test('rechecks feeds on Play, distinguishes unpublished/upcoming/ended events, a
     clock += 7200000; await assert.rejects(p.resolve(id), { status: 410 }); await p.refresh(); assert.equal((await p.rows(String)).length, 0);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test('video preflight exhausts published direct, StreamControl and StreamFree backups before discarding the primary', { timeout: 3000 }, async t => {
+  for (const kind of ['direct', 'control', 'free']) await t.test(kind, async () => {
+    const calls = [], player = 'https://player.test/embed/basketball/fixture1080p';
+    const urls = kind === 'free' ? ['https://player.test/live-cdn/fixture1080p/index.m3u8', 'https://player.test/live/fixture1080p/index.m3u8'] : ['https://video.test/broken/index.m3u8', 'https://video.test/working/index.m3u8'];
+    const source = createSportsSource({ fetchResource: async (url, options) => {
+      const u = new URL(url), headers = new Headers(options.headers); calls.push(u.origin + u.pathname);
+      if (url === player) {
+        if (kind === 'control') return new Response('<div id="scp" data-key="fixturechannel" data-hls="/hls.js"></div>');
+        return new Response(`const QUALITY = '1080p'; const SOURCE_SUFFIX = ''; const VARIANT = 'fixture' + QUALITY + SOURCE_SUFFIX;
+          const _0x = ${JSON.stringify({ '1080p': { _t: 'fixture-token', _e: Date.now() / 1000 + 3600, _n: 'fixture-nonce' } })};
+          const data = await window.sfFetch('/get-stream-key/fixture');`);
+      }
+      if (u.pathname.endsWith('/authorize')) return Response.json({ ok: true, session: 'fixture-session', expires: Date.now() / 1000 + 3600, renew_in: 300, sources: urls.map((url, id) => ({ id: String(id), url })) });
+      if (u.pathname.startsWith('/get-stream-key/')) return Response.json({ server_name: 'cdn' });
+      assert.match(headers.get('user-agent'), /Mozilla/, 'Preflight must use the same browser headers as playback');
+      if (u.pathname.endsWith('index.m3u8')) return new Response('#EXTM3U\n#EXTINF:6,\nsegment.ts\n');
+      if (u.pathname.endsWith('segment.ts')) {
+        assert.equal(headers.get('referer'), kind === 'direct' ? event.pageURL : player);
+        const bad = u.pathname.includes('/broken/') || u.pathname.includes('/live-cdn/');
+        return new Response(bad ? '<html>Unavailable</html>' : Buffer.alloc(752, 0x47));
+      }
+      assert.fail('Unexpected preflight request');
+    } });
+    const stream = await source.hls({ ...event, stream_urls: kind === 'direct' ? urls : [player] }, { verify: true });
+    assert.equal(new URL(stream.url).origin + new URL(stream.url).pathname, urls[1]);
+    assert.ok(calls.includes(new URL('segment.ts', urls[0]).href), 'First feed failed on video bytes, not its valid playlist');
+    assert.ok(calls.includes(new URL('segment.ts', urls[1]).href), 'Second feed was verified before returning it');
+  });
+});

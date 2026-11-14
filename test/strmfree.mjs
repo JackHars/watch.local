@@ -115,3 +115,78 @@ test('sports resolution falls back on failure, failed video preflight and timeou
   const recovered = await p.recover(retry.playback); assert.equal(recovered.playback.sportsSource, 'strmfree');
   assert.equal((await p.rows(String)).length, 1);
 });
+
+// Simulate mirrors that answer metadata while their actual video is unavailable.
+function fallbackFixture({ mirrors = ['first.test', 'second.test'], published, working }) {
+  const calls = [], video = Buffer.alloc(752, 0x47);
+  const source = createStrmfreeSource({ now: () => now, mirrors, directoryURL: null, fetchResource: async (url, options) => {
+    const u = new URL(url), headers = new Headers(options.headers); calls.push(u.hostname + u.pathname);
+    if (u.pathname === '/streams') return Response.json({ streams: { basketball: [{ ...candidate, stream_key: candidate.key }] } });
+    if (u.pathname.startsWith('/get-stream-key/')) return Response.json({ server_name: 'origin' });
+    if (u.pathname.startsWith('/api/v1/sources/')) return published ? Response.json({ stream_key: candidate.key, sources: published(u.hostname) }) : new Response('Not found', { status: 404 });
+    if (u.pathname.startsWith('/embed/')) {
+      const sign = { _t: 'fixture-' + (u.pathname.endsWith('_2') ? 'backup' : 'main'), _e: now / 1000 + 3600, _n: 'fixture-nonce' };
+      return new Response('const _0x = ' + JSON.stringify({ '1080p': sign, '720p': sign, '540p': sign }) + ';');
+    }
+    if (u.pathname.endsWith('index.m3u8') || u.pathname.endsWith('segment.ts')) {
+      assert.equal(headers.get('origin'), u.origin);
+      assert.ok(headers.get('referer').startsWith(u.origin + '/embed/'), 'Manifest and segment requests require player headers');
+      if (u.pathname.endsWith('index.m3u8')) {
+        assert.equal(u.searchParams.get('_t'), u.pathname.includes('_2/') ? 'fixture-backup' : 'fixture-main');
+        return new Response('#EXTM3U\n#EXTINF:6,\nsegment.ts\n');
+      }
+      return new Response(working(u) ? video : '<html>No video</html>');
+    }
+    assert.fail('Unexpected fallback request');
+  } });
+  return { source, calls };
+}
+const publishedFeed = (quality = '1080p', suffix = '') => ({ live: true, url: `/embed/basketball/${candidate.key}${quality}${suffix}` });
+
+test('Strmfree keeps trying mirrors after valid metadata and playlists fail video checks', async () => {
+  const { source, calls } = fallbackFixture({ working: url => url.hostname === 'second.test' });
+  const stream = await source.resolve(event);
+  assert.equal(new URL(stream.url).hostname, 'second.test');
+  for (const quality of ['1080p', '720p', '540p']) assert.ok(calls.includes(`first.test/live/${candidate.key}${quality}/segment.ts`));
+  const before = calls.length; assert.equal(await source.resolve(event), stream); assert.equal(calls.length, before, 'Only the verified winner is cached');
+});
+
+test('Strmfree falls back to a working lower rendition after a valid HD playlist returns bad video', async () => {
+  const { source, calls } = fallbackFixture({ working: url => url.pathname.includes('720p/') });
+  const stream = await source.resolve(event);
+  assert.equal(new URL(stream.url).pathname, `/live/${candidate.key}720p/index.m3u8`);
+  assert.ok(!calls.some(path => path.startsWith('second.test')), 'A good lower rendition avoids unnecessary mirror requests');
+});
+
+test('Strmfree follows published numbered backups, skips offline feeds and does not reuse another feed signature', async () => {
+  const { source, calls } = fallbackFixture({
+    published: host => host === 'first.test' ? [] : [{ ...publishedFeed('540p'), live: false }, publishedFeed(), publishedFeed('1080p', '_2')],
+    working: url => url.pathname.includes('_2/'),
+  });
+  const stream = await source.resolve(event);
+  assert.equal(new URL(stream.url).pathname, `/live/${candidate.key}1080p_2/index.m3u8`);
+  assert.ok(!calls.some(path => path.startsWith('first.test/embed/') || path.startsWith('first.test/live/')), 'Do not guess signed URLs when the mirror has no live feeds');
+  assert.ok(!calls.some(path => path.includes('540p')), 'Do not request an explicitly offline feed');
+  assert.ok(calls.includes(`second.test/embed/basketball/${candidate.key}1080p_2`));
+});
+
+test('an unpublished event reports unavailable video and a fresh retry can pick up a newly published feed', async () => {
+  let live = false;
+  const { source, calls } = fallbackFixture({ published: () => live ? [publishedFeed()] : [], working: () => true });
+  await assert.rejects(source.resolve(event), { status: 503, message: 'Strmfree has not published live video for this event yet.' });
+  assert.ok(calls.includes('first.test/api/v1/sources/' + candidate.key));
+  assert.ok(calls.includes('second.test/api/v1/sources/' + candidate.key));
+  assert.ok(!calls.some(path => path.includes('/embed/') || path.includes('/live/')));
+  live = true; assert.ok((await source.resolve(event, { fresh: true })).url);
+});
+
+test('exhausting enabled sports providers returns an availability error instead of the last mirror HTTP error', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'watchlocal-sports-unavailable-')); t.after(() => rm(directory, { recursive: true, force: true }));
+  const tried = [];
+  const source = { list: async sport => ({ events: sport === 'nba' ? [event] : [] }), resolve: async () => { tried.push('primary'); throw Error('Unsupported advertising page'); } };
+  const fallback = { resolve: async () => { tried.push('fallback'); throw Object.assign(Error('Strmfree returned HTTP 403.'), { status: 502 }); } };
+  const provider = createSportsProvider({ directory, source, fallback, now: () => now }); await provider.initialize();
+  const [{ stream_id }] = await provider.rows(String);
+  await assert.rejects(provider.resolve(stream_id), error => error.status === 503 && /All enabled sports sources were tried/.test(error.message) && !error.message.includes('403'));
+  assert.deepEqual(tried, ['primary', 'fallback']);
+});

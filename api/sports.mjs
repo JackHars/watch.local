@@ -105,9 +105,10 @@ export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}
     return /(^|\.)(strmfree\.st|streambuff\.fit)$/i.test(url.hostname) ? 1 : 2;
   };
   const playback = createSportsPlayback({ request: get });
+  const verify = (stream, options) => probeSportsStream({ ...stream, headers: { 'user-agent': UA, ...stream.headers } }, { ...options, fetchResource, media: (url, context) => playback.media(url, context, { renew: false }) });
   return {
     media: playback.media,
-    verify: (stream, options) => probeSportsStream(stream, { ...options, fetchResource, media: playback.media }),
+    verify, validatesHls: true,
     status: createSportsStatus({ request: get }),
     async list(sport) {
       let last;
@@ -134,7 +135,8 @@ export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}
       if (latest) return latest;
       throw last || new Error('The sports event is unavailable.');
     },
-    async hls(item, { signal } = {}) {
+    async hls(item, { signal, verify: checkVideo = false } = {}) {
+      const check = stream => checkVideo ? verify(stream, { signal }) : Promise.resolve();
       const queue = (item.stream_urls?.length ? item.stream_urls : [item.stream_url]).filter(Boolean).map(url => ({ url, referer: item.pageURL, depth: 0 })), visited = new Set();
       let last;
       while (queue.length && visited.size < 12) {
@@ -144,8 +146,11 @@ export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}
         visited.add(next.url);
         try {
           const result = await get(next.url, next.referer, { signal });
-          if (result.text.trimStart().startsWith('#EXTM3U')) return { url: result.url, headers: { referer: next.referer, origin: new URL(next.referer).origin, 'user-agent': UA } };
-          const controlled = await playback.resolve(result.text, result.url, next.referer);
+          if (result.text.trimStart().startsWith('#EXTM3U')) {
+            const stream = { url: result.url, headers: { referer: next.referer, origin: new URL(next.referer).origin, 'user-agent': UA } };
+            await check(stream); return stream;
+          }
+          const controlled = await playback.resolve(result.text, result.url, next.referer, { verify: check, signal });
           if (controlled) return { ...controlled, headers: { ...controlled.headers, 'user-agent': UA } };
           if (next.depth >= 4) continue;
           const page = unescapeHTML(result.text).replaceAll('\\/', '/').replaceAll('\\u0026', '&');
@@ -290,11 +295,11 @@ export function createSportsProvider({ directory, source = createSportsSource(),
               if (name === 'primary') {
                 const event = await source.resolve(stored, { signal });
                 if (!event.has_payload || !event.stream_url) throw fail(503, eventStatus(event, now) === 'UPCOMING' ? 'This event has not started and its broadcast is not available yet.' : 'The sports source has not published a broadcast URL for this event yet.');
-                value = await source.hls(event, { signal });
+                value = await source.hls(event, { signal, verify: true });
               } else value = await fallback.resolve(stored, { signal, fresh });
-              // Only probe the primary when an alternate provider is enabled.
-              // Strmfree is always checked before giving it to a native player.
-              if (adapter.verify && (name === 'strmfree' || fallback && fallbackEnabled())) await adapter.verify(value, { signal });
+              // Built-in adapters validate each candidate before selecting it,
+              // so a bad segment cannot discard their remaining backups.
+              if (adapter.verify && !(name === 'primary' ? adapter.validatesHls : adapter.validatesStreams)) await adapter.verify(value, { signal });
               return value;
             });
             if (fallback) stream = { ...stream, playback: { provider: 'sports-direct', root: stream.url, ...stream.playback, eventId: Number(id), sportsSource: name } };
@@ -305,7 +310,8 @@ export function createSportsProvider({ directory, source = createSportsSource(),
             return stream;
           } catch (error) { last = error; if (name === 'primary') primaryError = error; }
         }
-        if (primaryError?.status === 503 && last?.status === 503) throw primaryError;
+        if (primaryError?.status === 503 && last?.status === 503 && eventStatus(stored, now) === 'UPCOMING') throw primaryError;
+        if (candidates.length > 1) throw fail(503, 'No playable broadcast is available for this event right now. All enabled sports sources were tried. A live game may not have a working video feed yet.');
         throw last || fail(502, 'No enabled sports source could play this event.');
       })().finally(() => resolving.delete(Number(id)));
       resolving.set(Number(id), pending);
