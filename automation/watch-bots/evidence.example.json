@@ -1,0 +1,16 @@
+{
+  "candidate_id": "queue-id-from-claim",
+  "provider_name": "Example",
+  "site_url": "https://example.org/",
+  "kind": "vod",
+  "catalog": "GET /api/search?q=...",
+  "resolver": "GET /api/resolve?id=...",
+  "sample": "Exact title ID or season/episode with a verified media segment",
+  "verification": {
+    "verdict": "raw_verified",
+    "media_kind": "mpeg-ts",
+    "checked_at": "2026-11-14T00:00:00+00:00"
+  },
+  "api_file": "/home/jack/watch-bots/providers/artifacts/queue-id/api.mjs",
+  "probe_file": "/home/jack/watch-bots/providers/artifacts/queue-id/probe.json"
+}
