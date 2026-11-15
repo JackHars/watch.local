@@ -207,6 +207,12 @@ def claim(data):
                     item["status"] = "pending"
                     changed = True
     changed = bool(sync_index(data)) or changed
+    active = next((item for item in data["items"] if item.get("status") == "claimed"), None)
+    if active:
+        if changed:
+            save(data)
+        return {**{key: active[key] for key in ("id", "name", "url", "section", "category", "attempts", "lease_until")},
+                "resumed": True}
     for item in data["items"]:
         if item.get("listed", True) and item.get("status") == "pending":
             item["status"] = "claimed"

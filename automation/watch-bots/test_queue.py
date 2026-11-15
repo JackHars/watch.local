@@ -66,6 +66,21 @@ class QueueTests(unittest.TestCase):
                 self.assertEqual(queue.claim(data)["id"], "next")
                 self.assertEqual(data["items"][0]["status"], "blocked")
 
+    def test_active_claim_resumes_before_claiming_next_site(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with patch.object(queue, "STATE", Path(temp)), patch.object(queue, "QUEUE", Path(temp) / "queue.json"):
+                data = {"fetched_at": queue.iso(queue.now()), "items": [
+                    {"id": "first", "name": "First", "url": "https://first.example", "section": "streaming-sites",
+                     "category": "stream-aggregators", "attempts": 1, "status": "claimed",
+                     "lease_until": queue.iso(queue.now() + timedelta(hours=1))},
+                    {"id": "next", "name": "Next", "url": "https://next.example", "section": "streaming-sites",
+                     "category": "stream-aggregators", "attempts": 0, "status": "pending"},
+                ]}
+                result = queue.claim(data)
+                self.assertEqual(result["id"], "first")
+                self.assertTrue(result["resumed"])
+                self.assertEqual(data["items"][1]["status"], "pending")
+
     def test_handoff_rejects_player_page_and_sends_verified_media(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
