@@ -21,7 +21,7 @@ Research outcomes live in `/home/jack/watch-bots/state/fmhy-queue.json` on this 
 
 Both profiles have separate checkouts. The research checkout's push remote is disabled; the integrator checkout tracks `origin/main`. Research code and probe results live in `/home/jack/watch-bots/providers/artifacts/<queue-id>/`, outside either Git checkout. These may contain short-lived media URLs and must not be committed. The Kanban card carries paths and a sanitized summary, not the media URLs.
 
-The scheduler uses the Watch Providers profile's hourly cron job. Its script runs `fmhy_queue.py claim`, leases one site for four hours, and injects that candidate into the bot's prompt. A failed run can retry the same item after the lease expires. On a verified result, `handoff.py` validates the evidence and creates an idempotent Kanban task assigned to Watch Integrator. The host Hermes gateway dispatches the task. A source that has no usable stream is marked unavailable or blocked, so the next run moves on.
+The scheduler uses the Watch Providers profile's hourly cron job in `--no-agent` mode. Its script sends a research assignment into the profile's visible Bot Chat; the bot claims one site there and posts short progress notes while it works. The final result and failures appear in the same chat. A failed turn can retry the leased item after it expires. On a verified result, `handoff.py` validates the evidence and creates an idempotent Kanban task assigned to Watch Integrator. The host Hermes gateway dispatches the task. A source that has no usable stream is marked unavailable or blocked, so the next run moves on.
 
 ## Evidence contract
 
