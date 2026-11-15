@@ -11,6 +11,8 @@ Add a working source to the existing playback system. This skill uses small, exp
 
 Locate the actual watch.local checkout. Read its applicable `AGENTS.md`, `package.json`, and `git status --short`. Use Node 24 or newer. Preserve unrelated edits. All application paths below are relative to that checkout, not to the skill folder.
 
+Before changing code, run `git fetch origin main`. If the checkout is on a clean `main`, run `git merge --ff-only origin/main` so the integration starts from the current upstream. If there are local changes or a diverged branch, preserve them and resolve that state before editing; never overwrite existing work to make a push succeed.
+
 Extract this short contract from the supplied implementation, docs, and observed responses:
 
 ```text
