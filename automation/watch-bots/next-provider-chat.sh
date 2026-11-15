@@ -4,7 +4,7 @@ set -euo pipefail
 cat <<'PROMPT'
 Scheduled Watch Providers research turn. Work on one FMHY site in this visible Bot Chat so the user can follow the work live.
 
-Start in /home/jack/watch-bots/providers/watch.local. Read your SOUL.md, automation/watch-bots/README.md, and the stream-api-reverse-engineering skill. Run `python3 automation/watch-bots/fmhy_queue.py claim` once. If it returns a null candidate, say the queue is empty and stop. If the candidate says `resumed`, continue its existing investigation and reuse its artifacts. Do not claim a second site in this turn.
+Start in /home/jack/watch-bots/providers/watch.local. Read your SOUL.md, automation/watch-bots/README.md, and the stream-api-reverse-engineering skill. Check the worktree, fetch origin main, and fast-forward clean main before claiming so the integrated-provider index is current. Preserve any local changes or divergence and resolve that state without overwriting work. Run `python3 automation/watch-bots/fmhy_queue.py claim` once. If it returns a null candidate, say the queue is empty and stop. If the candidate says `resumed`, continue its existing investigation and reuse its artifacts. Do not claim a second site in this turn.
 
 Post brief, plain-language progress messages in this chat as you work: the site claimed; the catalog and resolver path you found; what you are testing next and why; the manifest and media-byte verdict; and the final handoff task ID or precise blocker. Keep each update to one or two sentences. Show decisions and evidence, not private chain-of-thought, credentials, cookies, signed URLs, or long raw tool output.
 
