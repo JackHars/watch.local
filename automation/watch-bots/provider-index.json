@@ -97,6 +97,13 @@
       "implementation": ["api/dulo.mjs", "api/providers.mjs"]
     },
     {
+      "id": "arrowtv",
+      "name": "ArrowTV",
+      "kind": "vod",
+      "origins": ["https://arrowtv.net", "https://punkflix.net", "https://media.punkflix.net", "https://player.cinezo.live"],
+      "implementation": ["api/arrowtv.mjs", "api/providers.mjs"]
+    },
+    {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",
