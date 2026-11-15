@@ -133,7 +133,10 @@ function mockProvider(provider, kind, { brokenAthena = false, bait = false } = {
   return { fetchResource, calls };
 }
 
-for (const provider of PROVIDERS.filter(p => !['cinejoy', 'reelix', 'movy'].includes(p))) for (const kind of ['movie', 'series']) {
+// meowtv is excluded: its envelope is decrypted by the site's one-way deobfuscator
+// WASM, so a generic fixture cannot mint a valid one — test/meowtv.mjs covers the
+// full chain (ticket, path, identity, fallback, relay) with the injected seam.
+for (const provider of PROVIDERS.filter(p => !['cinejoy', 'reelix', 'movy', 'meowtv'].includes(p))) for (const kind of ['movie', 'series']) {
   test(`${provider} ${kind}: resolves and verifies HLS with provider headers`, async () => {
     const mock = mockProvider(provider, kind);
     const resolver = createProviderResolver({ ...mock, getCatalogData: async path => { assert.match(path, /\/550\/external_ids$/); return { imdb_id: 'tt0137523' }; } });
@@ -221,7 +224,7 @@ test('failed-provider exclusions are validated and invalidate only the failed ep
   let calls=0;const resolve=createProviderResolver({cinejoy:async()=>{calls++;return {master:'https://fixture.test/master'};}});
   const input={tmdb:550,kind:'series',season:1};
   for(const episode of [2,3,4])await resolve({...input,episode});
-  for(const exclude of ['cinejoy',['invalid'],{},Array(11).fill('cinejoy')])await assert.rejects(resolve({...input,episode:3,exclude}),{status:400});
+  for(const exclude of ['cinejoy',['invalid'],{},Array(PROVIDERS.length+1).fill('cinejoy')])await assert.rejects(resolve({...input,episode:3,exclude}),{status:400});
   await assert.rejects(resolve({...input,episode:3,provider:'cinejoy',exclude:['cinejoy']}),/No other enabled provider/);
   for(const episode of [2,4])assert.equal((await resolve({...input,episode})).cached,true);
   assert.equal((await resolve({...input,episode:3})).cached,false);assert.equal(calls,4);

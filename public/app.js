@@ -33,8 +33,8 @@ const image = (path, alt='', size='w780', eager=false) => path ? `<img src="${es
 const title = item => item.title || item.name || 'Untitled';
 const year = item => (item.release_date || item.first_air_date || '').slice(0,4);
 const initials = user => (user.username||'U').slice(0,2).toUpperCase();
-const names = {timstreams:'Tim Streams',zlive:'ZLive',sports:'Live sports',strmfree:'Strmfree',cinejoy:'Cinejoy',atlantic:'Atlantic',tvids:'Tvids',zstream:'Zstream',vidrift:'Vidrift',vidsrc:'VidSrc',reelix:'Reelix',movy:'Movy',rive:'Rive',corsflix:'CorsFlix'};
-const subtitles = {cinejoy:'Cinejoy · four video mirrors',atlantic:'Athena, Aphrodite & Moscow',tvids:'Xpass · verified backup feeds',zstream:'Cinecat & P-Stream',vidrift:'7movies · Bigbang & Vexon',vidsrc:'IMDb-based video sources',reelix:'VidCore · movie and episode fallback',movy:'Movy · encrypted Wecollege movie & episode sources',rive:'Rive · TMDB movie & episode mirrors',corsflix:'CorsFlix · encrypted VidNest movie & episode streams'};
+const names = {timstreams:'Tim Streams',zlive:'ZLive',sports:'Live sports',strmfree:'Strmfree',cinejoy:'Cinejoy',atlantic:'Atlantic',tvids:'Tvids',zstream:'Zstream',vidrift:'Vidrift',vidsrc:'VidSrc',reelix:'Reelix',movy:'Movy',rive:'Rive',corsflix:'CorsFlix',meowtv:'MeowTV'};
+const subtitles = {cinejoy:'Cinejoy · four video mirrors',atlantic:'Athena, Aphrodite & Moscow',tvids:'Xpass · verified backup feeds',zstream:'Cinecat & P-Stream',vidrift:'7movies · Bigbang & Vexon',vidsrc:'IMDb-based video sources',reelix:'VidCore · movie and episode fallback',movy:'Movy · encrypted Wecollege movie & episode sources',rive:'Rive · TMDB movie & episode mirrors',corsflix:'CorsFlix · encrypted VidNest movie & episode streams',meowtv:'MeowTV · ticketed MPEG-TS movie & episode streams'};
 async function api(path, options={}) {
   const startup = ['session','profiles'].includes(path) && (!options.method || options.method === 'GET');
   const {response,data} = await fetchJSON('/ui/'+path,{timeoutMs:startup?15000:0,...options,headers:{'Content-Type':'application/json',...options.headers},body:options.body?JSON.stringify(options.body):undefined});

@@ -76,6 +76,13 @@
       "implementation": ["api/corsflix.mjs", "api/providers.mjs"]
     },
     {
+      "id": "meowtv",
+      "name": "MeowTV",
+      "kind": "vod",
+      "origins": ["https://meowtv.ru", "https://api.meowtv.ru"],
+      "implementation": ["api/meowtv.mjs", "api/providers.mjs"]
+    },
+    {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",
