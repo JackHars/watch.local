@@ -40,8 +40,10 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: node --check scripts/check-providers-live.mjs
+      - run: npm run check:private
       - run: npm run test:providers
       - run: npm run test:live
+      - run: npm run test:sports
       - name: Build matrix from configured providers
         id: providers
         shell: bash
