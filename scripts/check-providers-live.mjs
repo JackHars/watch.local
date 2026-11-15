@@ -64,7 +64,7 @@ async function checkVod(id) {
     series: [{ tmdb: 63333, season: 1, episode: 1 }, { tmdb: 1399, season: 1, episode: 1 }],
   };
   // These providers have different catalog coverage from the generic canaries.
-  const samples = ['corsflix', 'meowtv', 'flickystream'].includes(id) ? {
+  const samples = ['corsflix', 'meowtv', 'flickystream', 'dulo'].includes(id) ? {
     movie: [{ tmdb: 27205 }, ...defaultSamples.movie],
     series: id === 'corsflix'
       ? [{ tmdb: 1396, season: 1, episode: 1 }, ...defaultSamples.series]

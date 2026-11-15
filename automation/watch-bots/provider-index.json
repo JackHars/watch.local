@@ -90,6 +90,13 @@
       "implementation": ["api/flickystream.mjs", "api/providers.mjs"]
     },
     {
+      "id": "dulo",
+      "name": "Dulo",
+      "kind": "vod",
+      "origins": ["https://dulo.mov"],
+      "implementation": ["api/dulo.mjs", "api/providers.mjs"]
+    },
+    {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",

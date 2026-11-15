@@ -110,6 +110,7 @@ function mockProvider(provider, kind, { brokenAthena = false, bait = false } = {
       if (provider === 'corsflix' && url.pathname === '/master') assert.equal(options.headers.referer, 'https://vidrift.example.net/');
       if (provider === 'tvids') assert.equal(options.headers.origin, 'https://play.xpass.top');
       if (provider === 'vidsrc' && url.pathname === '/master') { assert.equal(url.searchParams.get('token'), 'host+token'); assert.equal(url.searchParams.get('other'), '1'); }
+      if (provider === 'dulo' && url.pathname === '/master') assert.equal(options.headers.referer, 'https://dulo.mov/');
       if (url.pathname === '/bait') return new Response('<html>Error</html>');
       if (url.pathname === '/master') return new Response(master);
       if (url.pathname === '/bait-master') return new Response('#EXTM3U\n#EXTINF:6,\nbait.png\n');
@@ -127,6 +128,16 @@ function mockProvider(provider, kind, { brokenAthena = false, bait = false } = {
       if (kind === 'tv') { meta.s = Number(season); meta.e = Number(episode); }
       const token = Buffer.from(JSON.stringify({ u: 'https://cdn.test/master', h: { Referer: 'https://vidrift.example.net/' }, m: meta })).toString('base64url');
       return json(corsEnvelope({ status: 'success', streams: [{ language: 'Original', quality: '1080p', type: 'hls', url: `/hls/${token}/master.m3u8` }], subtitles: [] }, n));
+    }
+    if (url.hostname === 'dulo.mov' && url.pathname === '/dulo-config.js') return new Response("window.__CONFIG__ = { WORKER_DOMAIN: 'edge.test' };", { headers: { 'content-type': 'text/javascript' } });
+    if (url.hostname === 'zcdn1.edge.test' && url.pathname === '/cdn') {
+      assert.equal(url.searchParams.get('tmdb'), '550');
+      assert.equal(url.searchParams.get('type'), kind === 'series' ? 'tv' : 'movie');
+      if (kind === 'series') {
+        assert.equal(url.searchParams.get('season'), '1');
+        assert.equal(url.searchParams.get('episode'), '2');
+      }
+      return json({ ready: true, url: 'https://cdn.test/master', rb: 'cafebabecafebabe' });
     }
     throw new Error('Unexpected URL ' + url.origin + url.pathname);
   };
