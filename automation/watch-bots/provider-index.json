@@ -62,6 +62,13 @@
       "implementation": ["api/movy.mjs", "api/providers.mjs"]
     },
     {
+      "id": "rive",
+      "name": "Rive",
+      "kind": "vod",
+      "origins": ["https://www.rivestream.app", "https://scrapper.rivestream.app", "https://recommendation.rivestream.app"],
+      "implementation": ["api/rive.mjs", "api/providers.mjs"]
+    },
+    {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",

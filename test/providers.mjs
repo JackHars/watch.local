@@ -91,9 +91,15 @@ function mockProvider(provider, kind, { brokenAthena = false, bait = false } = {
       }
       return new Response(fixture.wasm);
     }
+    if (url.hostname === 'scrapper.rivestream.app') {
+      assert.equal(url.searchParams.get('id'), '550');
+      if (kind === 'series') { assert.equal(url.searchParams.get('season'), '1'); assert.equal(url.searchParams.get('episode'), '2'); }
+      return json({ data: { sources: [{ quality: '1080p', url: 'https://cdn.test/master' }] } });
+    }
     if (url.hostname === 'cdn.test') {
       if (url.pathname === '/generate.php') return new Response('"host+token"');
       if (provider === 'zstream') assert.equal(options.headers.referer, 'https://required.test/');
+      if (provider === 'rive') assert.equal(options.headers.referer, 'https://www.rivestream.app/');
       if (provider === 'tvids') assert.equal(options.headers.origin, 'https://play.xpass.top');
       if (provider === 'vidsrc' && url.pathname === '/master') { assert.equal(url.searchParams.get('token'), 'host+token'); assert.equal(url.searchParams.get('other'), '1'); }
       if (url.pathname === '/bait') return new Response('<html>Error</html>');
@@ -196,7 +202,7 @@ test('failed-provider exclusions are validated and invalidate only the failed ep
   let calls=0;const resolve=createProviderResolver({cinejoy:async()=>{calls++;return {master:'https://fixture.test/master'};}});
   const input={tmdb:550,kind:'series',season:1};
   for(const episode of [2,3,4])await resolve({...input,episode});
-  for(const exclude of ['cinejoy',['invalid'],{},Array(9).fill('cinejoy')])await assert.rejects(resolve({...input,episode:3,exclude}),{status:400});
+  for(const exclude of ['cinejoy',['invalid'],{},Array(10).fill('cinejoy')])await assert.rejects(resolve({...input,episode:3,exclude}),{status:400});
   await assert.rejects(resolve({...input,episode:3,provider:'cinejoy',exclude:['cinejoy']}),/No other enabled provider/);
   for(const episode of [2,4])assert.equal((await resolve({...input,episode})).cached,true);
   assert.equal((await resolve({...input,episode:3})).cached,false);assert.equal(calls,4);
