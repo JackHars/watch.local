@@ -59,10 +59,17 @@ function validURL(value) {
 
 async function checkVod(id) {
   const { resolveStream } = await import('../api/platform.mjs');
-  const samples = {
+  const defaultSamples = {
     movie: [{ tmdb: 9384 }, { tmdb: 550 }],
     series: [{ tmdb: 63333, season: 1, episode: 1 }, { tmdb: 1399, season: 1, episode: 1 }],
   };
+  // These providers have different catalog coverage from the generic canaries.
+  const samples = ['corsflix', 'meowtv', 'flickystream'].includes(id) ? {
+    movie: [{ tmdb: 27205 }, ...defaultSamples.movie],
+    series: id === 'corsflix'
+      ? [{ tmdb: 1396, season: 1, episode: 1 }, ...defaultSamples.series]
+      : [{ tmdb: 1399, season: 1, episode: 1 }, { tmdb: 1396, season: 1, episode: 1 }, ...defaultSamples.series],
+  } : defaultSamples;
   for (const [mediaKind, cases] of Object.entries(samples)) {
     let passed = false;
     const failures = [];
