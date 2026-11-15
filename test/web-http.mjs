@@ -114,7 +114,9 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/ui/tmdb',{method:'PUT',cookie:admin,body:{credential:'fixture-tmdb-credential'},origin:'https://evil.test'})).status,403);
   assert.equal((await request('/ui/tmdb',{method:'PUT',cookie:admin,body:{credential:'invalid-fixture-credential'}})).status,400);
   assert.equal((await request('/ui/tmdb',{method:'PUT',cookie:admin,body:{credential:'fixture-tmdb-credential'}})).status,200);
-  r=await request('/ui/settings',{cookie:admin});const configText=await r.text();assert.ok(!configText.includes('fixture-tmdb-credential'));assert.equal(JSON.parse(configText).config.metadata.configured,true);
+  r=await request('/ui/settings',{cookie:admin});const configText=await r.text();assert.ok(!configText.includes('fixture-tmdb-credential'));const settingsPayload=JSON.parse(configText);assert.equal(settingsPayload.config.metadata.configured,true);
+  assert.deepEqual(settingsPayload.providers.map(provider=>provider.id),settingsPayload.config.playback.order);
+  assert.equal(settingsPayload.providers.find(provider=>provider.id==='flickystream').name,'FlickyStream');
   assert.equal((await request('/ui/settings',{cookie:admin,method:'PUT',body:{metadata:{tmdbFallback:true}}})).status,200);
   assert.equal((await request('/ui/settings',{cookie:admin,method:'PUT',body:{metadata:{tmdbFallback:false}}})).status,200);
   assert.equal((await request('/ui/session',{cookie:admin}).then(r=>r.json())).setupRequired,false);

@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { settingsStore, dataDirectory, publicUser, problem } from './settings.mjs';
+import { settingsStore, dataDirectory, publicUser, problem, providerDirectory } from './settings.mjs';
 import { join } from 'node:path';
 import { createUpdateControl } from './updates.mjs';
 import { createUpdateRepair } from './update-repair.mjs';
@@ -179,7 +179,7 @@ export async function handleWeb(req, res) {
     if (path === '/ui/updates/check' && req.method === 'POST') { await body(req); json(res,202,await updates.check()); return true; }
     if (path === '/ui/updates/restart' && req.method === 'POST') { await body(req); json(res,202,await updates.restart()); return true; }
     if (path === '/ui/settings' && req.method === 'GET') {
-      json(res,200,{config:settingsStore.publicConfig(),users:settingsStore.get().users.map(publicUser),ownerId:settingsStore.get().ownerId,catalog:catalogStatus(),live:liveStatus(),uptime:Math.floor((Date.now()-started)/1000),running:req.watchlocalNetwork||{host:process.env.HOST||req.socket.localAddress,port:req.socket.localPort,webPort:req.socket.localPort,webPort80:false,webError:''}}); return true;
+      json(res,200,{config:settingsStore.publicConfig(),providers:providerDirectory,users:settingsStore.get().users.map(publicUser),ownerId:settingsStore.get().ownerId,catalog:catalogStatus(),live:liveStatus(),uptime:Math.floor((Date.now()-started)/1000),running:req.watchlocalNetwork||{host:process.env.HOST||req.socket.localAddress,port:req.socket.localPort,webPort:req.socket.localPort,webPort80:false,webError:''}}); return true;
     }
     if (path === '/ui/settings' && req.method === 'PUT') { await settingsStore.configure(await body(req)); json(res,200,{config:settingsStore.publicConfig()}); return true; }
     if (path === '/ui/tmdb' && req.method === 'PUT') { const input = await body(req); await saveTMDBCredential(input.credential); json(res,200,{configured:true}); return true; }

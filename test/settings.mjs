@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createSettingsStore, defaultConfig, activeUser, publicUser } from '../api/settings.mjs';
+import { createSettingsStore, defaultConfig, activeUser, publicUser, providerNames, providerDirectory, describeProviders } from '../api/settings.mjs';
 
 test('migrates the legacy owner, persists users and settings, validates permissions and serializes writes', async()=>{
  const directory=await mkdtemp(join(tmpdir(),'watchlocal-settings-'));
@@ -85,20 +85,32 @@ test('existing installations gain live providers and retain independent enable/d
  }finally{await rm(directory,{recursive:true,force:true});}
 });
 
-test('existing provider order gains Reelix once and retains disabled providers across restarts', async () => {
+test('existing provider order gains newly registered providers once and retains disabled providers', async () => {
  const directory=await mkdtemp(join(tmpdir(),'watchlocal-reelix-settings-'));
  try {
   const original=createSettingsStore(directory);await original.initialize();
   const state=original.get();
-  const order=defaultConfig().playback.order.filter(p=>p!=='reelix').reverse();
+  const added=providerNames.filter(p=>['reelix','movy','rive','corsflix','meowtv','flickystream'].includes(p));
+  const order=defaultConfig().playback.order.filter(p=>!added.includes(p)).reverse();
   state.config.playback.order=order;state.config.playback.enabled=['cinejoy','tvids'];
   await writeFile(join(directory,'iptv.json'),JSON.stringify(state));
   const migrated=createSettingsStore(directory);await migrated.initialize();
-  assert.deepEqual(migrated.config().playback.order,[...order,'reelix']);
-  assert.deepEqual(migrated.config().playback.enabled,['cinejoy','tvids','reelix']);
+  assert.deepEqual(migrated.config().playback.order,[...order,...added]);
+  assert.deepEqual(migrated.config().playback.enabled,['cinejoy','tvids',...added]);
   await migrated.configure({playback:{enabled:['cinejoy','tvids']}});
   const reloaded=createSettingsStore(directory);await reloaded.initialize();
-  assert.deepEqual(reloaded.config().playback.order,[...order,'reelix']);
+  assert.deepEqual(reloaded.config().playback.order,[...order,...added]);
   assert.deepEqual(reloaded.config().playback.enabled,['cinejoy','tvids']);
  } finally {await rm(directory,{recursive:true,force:true});}
+});
+
+test('provider directory follows the runtime registry and labels future integrations', () => {
+ assert.deepEqual(providerDirectory.map(item=>item.id),providerNames);
+ assert.equal(providerDirectory.find(item=>item.id==='flickystream').name,'FlickyStream');
+ assert.deepEqual(describeProviders(['new_source','unindexed'],[
+  {id:'new_source',kind:'vod',name:'New Source',origins:['https://www.newsource.example/']},
+ ]),[
+  {id:'new_source',name:'New Source',subtitle:'Movies and series · newsource.example'},
+  {id:'unindexed',name:'Unindexed',subtitle:'Movies and series playback'},
+ ]);
 });

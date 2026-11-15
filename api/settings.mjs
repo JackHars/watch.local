@@ -7,8 +7,20 @@ import { fileURLToPath } from 'node:url';
 import { validLocalName } from './discovery.mjs';
 import { environment } from './environment.mjs';
 import { PROVIDERS } from './providers.mjs';
+import providerIndex from '../automation/watch-bots/provider-index.json' with { type: 'json' };
 
 export const providerNames = PROVIDERS;
+export function describeProviders(ids, integrated) {
+  const indexed = new Map(integrated.filter(entry => entry.kind === 'vod').map(entry => [entry.id, entry]));
+  return ids.map(id => {
+    const entry = indexed.get(id);
+    const name = entry?.name || id.replace(/[-_]+/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+    let origin = '';
+    try { origin = new URL(entry?.origins?.[0]).hostname.replace(/^www\./, ''); } catch { /* A source without an indexed origin still appears. */ }
+    return { id, name, subtitle: origin ? `Movies and series · ${origin}` : 'Movies and series playback' };
+  });
+}
+export const providerDirectory = describeProviders(providerNames, providerIndex.integrated);
 export const dataDirectory = environment('DATA_DIR') || fileURLToPath(new URL('../data/', import.meta.url));
 export const defaultConfig = () => ({
   server: { name: 'watch.local', host: '0.0.0.0', port: 8091, publicUrl: '', requireLanLogin: false, webPort80: false, mdns: true, mdnsHostname: 'watch' },
