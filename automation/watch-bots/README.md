@@ -3,7 +3,7 @@
 Two local Hermes profiles share a `watch-local` Kanban board:
 
 - **Watch Providers** refreshes [FMHY's video page](https://fmhy.net/video), walks its streaming and live TV/sports links in page order, and researches one site per scheduled run. The queue includes alternatives with distinct names and hosts, but excludes mirrors, status links, IPTV tools, players, and download-only sections. It keeps progress in `/home/jack/watch-bots/state/fmhy-queue.json`.
-- **Watch Integrator** receives a Kanban card only after Watch Providers supplies a raw media proof and a local API/adapter file. It independently verifies the provider, follows `skills/watchlocal-provider-integration/SKILL.md`, commits a successful integration, and pushes to the watch.local GitHub repo.
+- **Watch Integrator** receives a Kanban card only after Watch Providers supplies a raw media proof and a local API/adapter file. New cards wait for its visible Bot Chat, where it independently verifies the provider, follows `skills/watchlocal-provider-integration/SKILL.md`, posts progress notes, commits a successful integration, and pushes to the watch.local GitHub repo.
 
 ## Researched-site index
 
@@ -21,7 +21,9 @@ Research outcomes live in `/home/jack/watch-bots/state/fmhy-queue.json` on this 
 
 Both profiles have separate checkouts. The research checkout's push remote is disabled; the integrator checkout tracks `origin/main`. Research code and probe results live in `/home/jack/watch-bots/providers/artifacts/<queue-id>/`, outside either Git checkout. These may contain short-lived media URLs and must not be committed. The Kanban card carries paths and a sanitized summary, not the media URLs.
 
-The scheduler uses the Watch Providers profile's hourly cron job in `--no-agent` mode. Its script sends a research assignment into the profile's visible Bot Chat; the bot claims one site there and posts short progress notes while it works. The final result and failures appear in the same chat. A failed turn can retry the leased item after it expires. On a verified result, `handoff.py` validates the evidence and creates an idempotent Kanban task assigned to Watch Integrator. The host Hermes gateway dispatches the task. A source that has no usable stream is marked unavailable or blocked, so the next run moves on.
+The scheduler uses the Watch Providers profile's hourly cron job in `--no-agent` mode. Its script sends a research assignment into the profile's visible Bot Chat; the bot claims one site there and posts short progress notes while it works. The final result and failures appear in the same chat. A failed turn can retry the leased item after it expires. On a verified result, `handoff.py` validates the evidence and creates an idempotent Kanban task. New cards start blocked so the host gateway does not also start a background worker. The Watch Integrator profile's lightweight inbox cron checks for a new card every minute and sends it to its own Bot Chat. A source that has no usable stream is marked unavailable or blocked, so the next run moves on.
+
+The inbox records delivered card IDs in `/home/jack/watch-bots/state/integration-chat-sent.json` to prevent duplicate chat turns. Failed integrations stay blocked with a comment; an operator can inspect the card and retry explicitly. The Movy card created before this change is already running in a background worker and is left there until it finishes.
 
 ## Evidence contract
 

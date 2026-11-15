@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import fmhy_queue as queue
 import handoff
+import integration_inbox
 
 
 class QueueTests(unittest.TestCase):
@@ -104,7 +105,27 @@ class QueueTests(unittest.TestCase):
                     output = handoff.send(evidence_file)
                 self.assertEqual(output["task_id"], "t123")
                 self.assertIn("--assignee", run.call_args.args[0])
+                self.assertIn("--initial-status", run.call_args.args[0])
                 self.assertEqual(json.loads(queue.QUEUE.read_text())["items"][0]["status"], "verified")
+
+    def test_integrator_inbox_delivers_once_without_dispatching_running_worker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cards = [
+                {"id": "t_11111111", "status": "running", "assignee": "watch-integrator",
+                 "created_by": "watch-providers", "body": handoff.BOT_CHAT_MARKER},
+                {"id": "t_22222222", "status": "blocked", "assignee": "watch-integrator",
+                 "created_by": "watch-providers", "body": handoff.BOT_CHAT_MARKER},
+            ]
+            class Result:
+                stdout = json.dumps(cards)
+            with patch.object(integration_inbox, "STATE", root), \
+                 patch.object(integration_inbox, "SENT", root / "sent.json"), \
+                 patch.object(integration_inbox.subprocess, "run", return_value=Result()):
+                message = integration_inbox.deliver_next()
+                self.assertIn("t_22222222", message)
+                self.assertNotIn("t_11111111", message)
+                self.assertEqual(integration_inbox.deliver_next(), "")
 
 
 if __name__ == "__main__":

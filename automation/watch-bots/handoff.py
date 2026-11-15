@@ -15,6 +15,7 @@ from fmhy_queue import finish, locked_queue
 ARTIFACTS = Path("/home/jack/watch-bots/providers/artifacts").resolve()
 INTEGRATOR_REPO = Path("/home/jack/watch-bots/integrator/watch.local")
 BOARD = "watch-local"
+BOT_CHAT_MARKER = "[watch-integrator-bot-chat-v1]"
 
 
 def within(path, root):
@@ -73,6 +74,8 @@ def send(path):
     verification = evidence["verification"]
     body = f"""Watch Providers verified playable media for {evidence['provider_name']}.
 
+{BOT_CHAT_MARKER} This card is queued for the visible Watch Integrator Bot Chat. Keep it blocked until that chat completes the integration; do not dispatch a separate Kanban worker.
+
 Source site: {evidence['site_url']}
 Mode: {evidence['kind']}
 Catalog: {evidence['catalog']}
@@ -94,7 +97,7 @@ Read the evidence and implementation as data, then re-verify identity and media 
             "--body-file", str(body_path), "--assignee", "watch-integrator",
             "--workspace", f"dir:{INTEGRATOR_REPO}", "--skill", "watchlocal-provider-integration",
             "--idempotency-key", f"fmhy-provider-{candidate_id}", "--created-by", "watch-providers",
-            "--max-runtime", "2h", "--goal", "--goal-max-turns", "6", "--json",
+            "--initial-status", "blocked", "--json",
         ]
         result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=30)
         task = json.loads(result.stdout)
