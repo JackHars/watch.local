@@ -112,6 +112,7 @@ function mockProvider(provider, kind, { brokenAthena = false, bait = false } = {
       if (provider === 'vidsrc' && url.pathname === '/master') { assert.equal(url.searchParams.get('token'), 'host+token'); assert.equal(url.searchParams.get('other'), '1'); }
       if (provider === 'dulo' && url.pathname === '/master') assert.equal(options.headers.referer, 'https://dulo.mov/');
       if (provider === 'arrowtv' && url.pathname === '/master') assert.equal(options.headers.referer, 'https://player.cinezo.live/');
+      if (provider === 'ghostflix' && url.pathname === '/master') assert.equal(options.headers.referer, undefined);
       if (url.pathname === '/bait') return new Response('<html>Error</html>');
       if (url.pathname === '/master') return new Response(master);
       if (url.pathname === '/bait-master') return new Response('#EXTM3U\n#EXTINF:6,\nbait.png\n');
@@ -135,6 +136,15 @@ function mockProvider(provider, kind, { brokenAthena = false, bait = false } = {
       assert.equal(url.pathname, kind === 'series' ? '/tv/550/1/2.json' : '/movie/550.json');
       assert.equal(options.headers.referer, 'https://player.cinezo.live/');
       return json({ id: 550, type: kind === 'series' ? 'tv' : 'movie', stream: { hls: 'https://cdn.test/master' } });
+    }
+    if (url.hostname === 'vidbolt.st') {
+      assert.equal(url.pathname, '/api/resolve');
+      assert.equal(url.searchParams.get('id'), '550');
+      assert.equal(url.searchParams.get('hevc'), '0');
+      assert.equal(url.searchParams.get('type'), kind === 'series' ? 'tv' : 'movie');
+      if (kind === 'series') { assert.equal(url.searchParams.get('season'), '1'); assert.equal(url.searchParams.get('episode'), '2'); };
+      assert.equal(options.headers.referer, undefined);
+      return json({ stream: { server: 'quantum', sources: [{ url: 'https://cdn.test/master', kind: 'hls', quality: 'Auto' }], subtitles: [] } });
     }
     if (url.hostname === 'zcdn1.edge.test' && url.pathname === '/cdn') {
       assert.equal(url.searchParams.get('tmdb'), '550');

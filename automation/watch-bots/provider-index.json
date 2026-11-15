@@ -104,6 +104,13 @@
       "implementation": ["api/arrowtv.mjs", "api/providers.mjs"]
     },
     {
+      "id": "ghostflix",
+      "name": "Ghostflix",
+      "kind": "vod",
+      "origins": ["https://ghostflix.st", "https://vidbolt.st", "https://proxy.vidbolt.xyz"],
+      "implementation": ["api/ghostflix.mjs", "api/providers.mjs"]
+    },
+    {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",
