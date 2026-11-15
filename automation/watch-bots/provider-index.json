@@ -55,6 +55,13 @@
       "implementation": ["api/reelix.mjs", "api/providers.mjs"]
     },
     {
+      "id": "movy",
+      "name": "Movy",
+      "kind": "vod",
+      "origins": ["https://www.movy.sx", "https://api.wecollege.net", "https://db.wecollege.net"],
+      "implementation": ["api/movy.mjs", "api/providers.mjs"]
+    },
+    {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",
