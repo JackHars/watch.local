@@ -83,6 +83,13 @@
       "implementation": ["api/meowtv.mjs", "api/providers.mjs"]
     },
     {
+      "id": "flickystream",
+      "name": "FlickyStream",
+      "kind": "vod",
+      "origins": ["https://flickystream.mov", "https://api.flickystream.mov"],
+      "implementation": ["api/flickystream.mjs", "api/providers.mjs"]
+    },
+    {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",
