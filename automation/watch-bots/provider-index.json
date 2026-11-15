@@ -69,6 +69,13 @@
       "implementation": ["api/rive.mjs", "api/providers.mjs"]
     },
     {
+      "id": "corsflix",
+      "name": "CorsFlix",
+      "kind": "vod",
+      "origins": ["https://watch.corsflix.net", "https://new.vidnest.fun", "https://vidrift.net", "https://embed.vidrift.net"],
+      "implementation": ["api/corsflix.mjs", "api/providers.mjs"]
+    },
+    {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",

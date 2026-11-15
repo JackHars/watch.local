@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createCipheriv, createHash, createDecipheriv } from 'node:crypto';
 import { createProviderResolver, createProviderContext, PROVIDERS } from '../api/providers.mjs';
 import { decryptGCM, decryptVidSrc, vidsrcKey } from '../api/provider-crypto.mjs';
+import { corsflixKey } from '../api/corsflix.mjs';
 
 const ts = Buffer.alloc(188 * 4); ts[0] = ts[188] = ts[376] = ts[564] = 0x47;
 const master = '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=10,RESOLUTION=640x360\nlow.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=20,RESOLUTION=1920x1080\nleaf.m3u8\n';
@@ -19,6 +20,12 @@ function wasmFixture() {
 function gcm(key, plain) {
   const iv = Buffer.alloc(12, 7), cipher = createCipheriv('aes-256-gcm', key, iv);
   return b(iv, cipher.update(plain), cipher.final(), cipher.getAuthTag());
+}
+function corsEnvelope(plain, n) {
+  const key = createHash('sha256').update(`${n}|${corsflixKey}`).digest();
+  const iv = Buffer.alloc(12, 3);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  return { v: 2, n, d: b(iv, cipher.update(Buffer.from(JSON.stringify(plain))), cipher.final(), cipher.getAuthTag()).toString('base64url') };
 }
 
 test('native crypto matches published vectors and extracts relocated WASM tables', () => {
@@ -100,6 +107,7 @@ function mockProvider(provider, kind, { brokenAthena = false, bait = false } = {
       if (url.pathname === '/generate.php') return new Response('"host+token"');
       if (provider === 'zstream') assert.equal(options.headers.referer, 'https://required.test/');
       if (provider === 'rive') assert.equal(options.headers.referer, 'https://www.rivestream.app/');
+      if (provider === 'corsflix' && url.pathname === '/master') assert.equal(options.headers.referer, 'https://vidrift.example.net/');
       if (provider === 'tvids') assert.equal(options.headers.origin, 'https://play.xpass.top');
       if (provider === 'vidsrc' && url.pathname === '/master') { assert.equal(url.searchParams.get('token'), 'host+token'); assert.equal(url.searchParams.get('other'), '1'); }
       if (url.pathname === '/bait') return new Response('<html>Error</html>');
@@ -108,6 +116,17 @@ function mockProvider(provider, kind, { brokenAthena = false, bait = false } = {
       if (url.pathname === '/leaf.m3u8') return new Response(leaf);
       if (url.pathname === '/low.m3u8') throw new Error('Wrong rendition selected');
       return new Response(url.pathname === '/bait.png' || bait ? Buffer.from('89504e470d0a1a0a', 'hex') : ts);
+    }
+    if (url.hostname === 'new.vidnest.fun') {
+      const n = url.searchParams.get('_n');
+      if (!/^[A-Za-z0-9_-]{22}$/.test(n || '')) return new Response('bad nonce', { status: 403 });
+      const m = url.pathname.match(/^\/(onehd|allmovies|hollymoviehd|ophim|vidzee|flixhq|yflix|rogflix)\/(movie|tv)\/(\d+)(?:\/(\d+)\/(\d+))?\/?$/);
+      if (!m) return new Response('not found', { status: 404 });
+      const [, , kind, id, season, episode] = m;
+      const meta = { k: kind, id, l: 'Original' };
+      if (kind === 'tv') { meta.s = Number(season); meta.e = Number(episode); }
+      const token = Buffer.from(JSON.stringify({ u: 'https://cdn.test/master', h: { Referer: 'https://vidrift.example.net/' }, m: meta })).toString('base64url');
+      return json(corsEnvelope({ status: 'success', streams: [{ language: 'Original', quality: '1080p', type: 'hls', url: `/hls/${token}/master.m3u8` }], subtitles: [] }, n));
     }
     throw new Error('Unexpected URL ' + url.origin + url.pathname);
   };
@@ -202,7 +221,7 @@ test('failed-provider exclusions are validated and invalidate only the failed ep
   let calls=0;const resolve=createProviderResolver({cinejoy:async()=>{calls++;return {master:'https://fixture.test/master'};}});
   const input={tmdb:550,kind:'series',season:1};
   for(const episode of [2,3,4])await resolve({...input,episode});
-  for(const exclude of ['cinejoy',['invalid'],{},Array(10).fill('cinejoy')])await assert.rejects(resolve({...input,episode:3,exclude}),{status:400});
+  for(const exclude of ['cinejoy',['invalid'],{},Array(11).fill('cinejoy')])await assert.rejects(resolve({...input,episode:3,exclude}),{status:400});
   await assert.rejects(resolve({...input,episode:3,provider:'cinejoy',exclude:['cinejoy']}),/No other enabled provider/);
   for(const episode of [2,4])assert.equal((await resolve({...input,episode})).cached,true);
   assert.equal((await resolve({...input,episode:3})).cached,false);assert.equal(calls,4);

@@ -6,8 +6,9 @@ import { highestQualityPlaylist } from './hls-quality.mjs';
 import { createReelixResolver } from './reelix.mjs';
 import { createMovyResolver } from './movy.mjs';
 import { createRiveResolver } from './rive.mjs';
+import { createCorsflixResolver } from './corsflix.mjs';
 
-export const PROVIDERS = Object.freeze(['cinejoy', 'atlantic', 'tvids', 'zstream', 'vidrift', 'vidsrc', 'reelix', 'movy', 'rive']);
+export const PROVIDERS = Object.freeze(['cinejoy', 'atlantic', 'tvids', 'zstream', 'vidrift', 'vidsrc', 'reelix', 'movy', 'rive', 'corsflix']);
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const headersFor = site => ({ 'user-agent': UA, origin: new URL(site).origin, referer: site.endsWith('/') ? site : site + '/' });
 export function mediaHeaders(headers = {}) {
@@ -309,7 +310,7 @@ async function vidsrc(input, ctx, getCatalogData) {
 
 export function createProviderResolver({ cinejoy, getCatalogData, fetchResource, getPolicy, providerTimeoutMs = 30000, totalTimeoutMs = 180000, cacheTtlMs = 300000 }) {
   const cache = new Map();
-  const adapters = { cinejoy, atlantic, tvids, zstream, vidrift, vidsrc: (input, ctx) => vidsrc(input, ctx, getCatalogData), reelix: createReelixResolver(), movy: createMovyResolver(), rive: createRiveResolver() };
+  const adapters = { cinejoy, atlantic, tvids, zstream, vidrift, vidsrc: (input, ctx) => vidsrc(input, ctx, getCatalogData), reelix: createReelixResolver(), movy: createMovyResolver(), rive: createRiveResolver(), corsflix: createCorsflixResolver() };
   return async function resolve(input) {
     input = { season: null, episode: null, ...input, kind: input.kind === 'tv' ? 'series' : input.kind };
     input.signal?.throwIfAborted();
