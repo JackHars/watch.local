@@ -132,8 +132,8 @@ async function checkSports() {
   const results = await Promise.allSettled(['nba', 'nhl', 'soccer'].map(sport => source.list(sport)));
   const good = results.filter(result => result.status === 'fulfilled').map(result => result.value);
   if (!good.length) {
-    if (process.env.GITHUB_ACTIONS === 'true' && results.every(result => reason(result.reason) === 'HTTP 403')) {
-      throw runnerBlocked('The sports primary source refused the GitHub-hosted runner with HTTP 403; validation is inconclusive here');
+    if (process.env.GITHUB_ACTIONS === 'true') {
+      throw runnerBlocked('The GitHub-hosted runner could not read any sports event directory; validation is inconclusive here');
     }
     throw healthFailure('Sports primary source returned no readable event directory');
   }
@@ -193,8 +193,8 @@ try {
 } catch (error) {
   if (error.runnerBlocked || process.env.GITHUB_ACTIONS === 'true' && reason(error) === 'HTTP 403') {
     console.log(`::warning title=${provider} runner access blocked::${error.runnerBlocked ? error.message : 'The GitHub-hosted runner received HTTP 403; playback validation is inconclusive here.'}`);
-    console.log(`INCONCLUSIVE ${provider}: GitHub runner access blocked; no validity claim made`);
-    summary('Inconclusive', 'The upstream refused the GitHub-hosted runner with HTTP 403. This does not establish whether playback works for users.');
+    console.log(`INCONCLUSIVE ${provider}: GitHub runner could not verify playback; no validity claim made`);
+    summary('Inconclusive', error.runnerBlocked ? error.message : 'The upstream refused the GitHub-hosted runner with HTTP 403. This does not establish whether playback works for users.');
   } else {
     const message = error.healthCheck ? error.message : `Upstream check failed (${reason(error)})`;
     console.error(`::error title=${provider} health check failed::${message}`);
