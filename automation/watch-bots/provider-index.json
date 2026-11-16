@@ -132,6 +132,13 @@
       "implementation": ["api/moonflix.mjs", "api/providers.mjs"]
     },
     {
+      "id": "cinema",
+      "name": "Cinema (BZ)",
+      "kind": "vod",
+      "origins": ["https://cinema.army", "https://cookiebakers23blog.xyz"],
+      "implementation": ["api/cinema.mjs", "api/cinema-crypto.mjs", "api/providers.mjs"]
+    },
+    {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",
