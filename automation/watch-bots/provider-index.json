@@ -287,6 +287,28 @@
       ]
     },
     {
+      "id": "rivo",
+      "name": "RIVO",
+      "kind": "vod",
+      "origins": [
+        "https://rivo.st",
+        "https://f.rivo.st",
+        "https://1.rivo.st",
+        "https://2.rivo.st",
+        "https://3.rivo.st",
+        "https://4.rivo.st",
+        "https://5.rivo.st",
+        "https://6.rivo.st",
+        "https://7.rivo.st",
+        "https://8.rivo.st",
+        "https://9.rivo.st"
+      ],
+      "implementation": [
+        "api/rivo.mjs",
+        "api/providers.mjs"
+      ]
+    },
+    {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",

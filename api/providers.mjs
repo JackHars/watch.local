@@ -18,8 +18,9 @@ import { createMoonflixResolver } from './moonflix.mjs';
 import { createCinemaResolver } from './cinema.mjs';
 import { createZenoxResolver } from './zenox.mjs';
 import { createBingrResolver } from './bingr.mjs';
+import { createRivoResolver } from './rivo.mjs';
 
-export const PROVIDERS = Object.freeze(['cinejoy', 'atlantic', 'tvids', 'zstream', 'vidrift', 'vidsrc', 'reelix', 'movy', 'rive', 'corsflix', 'meowtv', 'flickystream', 'dulo', 'arrowtv', 'ghostflix', 'bingebang', 'moviebite', 'moonflix', 'cinema', 'zenox', 'bingr']);
+export const PROVIDERS = Object.freeze(['cinejoy', 'atlantic', 'tvids', 'zstream', 'vidrift', 'vidsrc', 'reelix', 'movy', 'rive', 'corsflix', 'meowtv', 'flickystream', 'dulo', 'arrowtv', 'ghostflix', 'bingebang', 'moviebite', 'moonflix', 'cinema', 'zenox', 'bingr', 'rivo']);
 export const MEDIA_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const UA = MEDIA_USER_AGENT;
 const validatedPlaylists = new Map();
@@ -358,7 +359,7 @@ async function vidsrc(input, ctx, getCatalogData) {
 
 export function createProviderResolver({ cinejoy, getCatalogData, fetchResource, getPolicy, providerTimeoutMs = 30000, totalTimeoutMs = 180000, cacheTtlMs = 300000 }) {
   const cache = new Map();
-  const adapters = { cinejoy, atlantic, tvids, zstream, vidrift, vidsrc: (input, ctx) => vidsrc(input, ctx, getCatalogData), reelix: createReelixResolver(), movy: createMovyResolver(), rive: createRiveResolver(), corsflix: createCorsflixResolver(), meowtv: createMeowtvResolver(), flickystream: createFlickystreamResolver(), dulo: createDuloResolver(), arrowtv: createArrowtvResolver(), ghostflix: createGhostflixResolver(), bingebang: createBingebangResolver(getCatalogData), moviebite: createMoviebiteResolver(), moonflix: createMoonflixResolver(), cinema: createCinemaResolver(), zenox: createZenoxResolver(), bingr: createBingrResolver() };
+  const adapters = { cinejoy, atlantic, tvids, zstream, vidrift, vidsrc: (input, ctx) => vidsrc(input, ctx, getCatalogData), reelix: createReelixResolver(), movy: createMovyResolver(), rive: createRiveResolver(), corsflix: createCorsflixResolver(), meowtv: createMeowtvResolver(), flickystream: createFlickystreamResolver(), dulo: createDuloResolver(), arrowtv: createArrowtvResolver(), ghostflix: createGhostflixResolver(), bingebang: createBingebangResolver(getCatalogData), moviebite: createMoviebiteResolver(), moonflix: createMoonflixResolver(), cinema: createCinemaResolver(), zenox: createZenoxResolver(), bingr: createBingrResolver(), rivo: createRivoResolver() };
   return async function resolve(input) {
     input = { season: null, episode: null, ...input, kind: input.kind === 'tv' ? 'series' : input.kind };
     input.signal?.throwIfAborted();
