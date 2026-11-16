@@ -34,6 +34,16 @@ Use the [adapter example](../assets/vod-adapter.mjs) if the API returns candidat
 
 Use exact IDs. If IMDb is required, inspect the existing `vidsrc` adapter's `getCatalogData('/…/external_ids')` conversion. Never replace an unplayable episode with the previous/next one. If response IDs are present, compare them with the requested identity. Season zero is valid; `season || 1` is wrong.
 
+## When the first hop is an HTML page (signed URL in markup)
+
+Some VOD providers serve a server-rendered watch page instead of a JSON API, and that page already embeds the first signed URL (for example in `<link rel="preload">`). The rest of the chain is often keyless — all upstream signing is issued server-side in the page, so no client-side crypto is needed.
+
+- The page may carry the URL in several encodings at once: HTML-entity (`&amp;`) inside a real tag, and JSON-escaped inside an embedded JS string (`\u0026`, or double-escaped `\\u0026`/`\\\"` in a flight payload). Decode the specific escapes (`\\u0026`→`&`, `\\\"`→`"`); never strip backslash runs, which corrupt the escapes.
+- The extraction regex must capture the whole URL to the next quote or whitespace boundary (e.g. `/https?:\/\/host[^"'\s]*/`). A pattern that ends in a keyword group like `…\?(?:url|Policy|Signature|Key)` matches only through the keyword — `match[0]` then lacks the `=value`, and any later "contains `url=`" check fails silently.
+- When the signed URL rides in a `url=` query parameter, its `/` characters arrive as `%2F`; parse with `URLSearchParams` and write string assertions against the encoded form.
+- SSR pages are exactly keyed and honest: the page echoes the requested identity in several channels (embedded state JSON, a title suffix like `· S<n> E<n>`, `<s>_<e>` components of the CDN path). Require all echo channels to match the requested kind/ID/season/episode. A page that renders the home page with no signed master is a "not found" — fail honestly, never substitute.
+- Worker-dependent SSR can omit the signed URL for an otherwise valid request. A second TLD serving the same app is the correct per-origin failover, not a second provider entry.
+
 ## Wiring checklist
 
 - [ ] Add `api/<id>.mjs`, or a small adapter in `api/providers.mjs` when appropriate.

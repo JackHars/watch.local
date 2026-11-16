@@ -61,6 +61,8 @@ If the skill lives elsewhere, use its absolute script path. The helper locates w
 
 Pitfall: binary magic-byte checks (WASM `\0asm`, MP4 `ftyp`, PNG) — `TypedArray#toString` ignores the encoding argument, so `subarray(0,4).toString('hex')` returns a comma-joined decimal list and never matches. Compare byte values numerically or go through `Buffer` first; if no friendly error is needed, `WebAssembly.compile`'s own rejection already validates the module.
 
+Pitfall: never embed a literal redaction or signature value containing regex metacharacters (e.g. `***`, `[REDACTED]`) in `new RegExp` or `assert.match` — a `*` after a `*` throws "Nothing to repeat" at module load, so the whole test file dies before any test runs and the failure reads as a confusing zero-results error. Assert literal values with `String.prototype.includes`/`startsWith`; keep regexes for the genuinely variable segments.
+
 For a simple JSON-to-HLS VOD source, adapt [the executable adapter example](assets/vod-adapter.mjs). It deliberately injects `loadSources`: implement that function from the verified API contract. The example contains **no real endpoint or credentials**. Channel and sports references contain their own contract examples; do not use the VOD return shape for live sources.
 
 ## Invariants to preserve
