@@ -53,7 +53,9 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/library.mjs')).status,200);
   assert.equal((await request('/upcoming.mjs')).status,200);
   assert.equal((await request('/settings-ui.mjs')).status,200);
+  assert.equal((await request('/search-ui.mjs')).status,200);
   assert.equal((await request('/ui/library?type=movie')).status,401);
+  assert.equal((await request('/ui/search/suggest?q=fixture')).status,401);
   assert.equal((await request('/updates.mjs')).status,200);
   assert.equal((await request('/update-repair.mjs')).status,200);
   assert.equal((await request('/ui/updates/repair')).status,401);
@@ -94,6 +96,8 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/player_api.php?username=owner&password=password123')).status,200);
   r=await request('/ui/browse',{cookie:admin});assert.equal(r.status,200);assert.equal((await r.json()).items[0].title,'Fixture Movie');
   r=await request('/ui/browse?q=fixture',{cookie:admin});assert.equal((await r.json()).items[0].poster_path,'/movie.jpg');
+  r=await request('/ui/search/suggest?q=f',{cookie:admin});assert.equal(r.status,200);assert.ok((await r.json()).items.some(item=>item.id===550&&item.type==='movie'));
+  r=await request('/ui/search/suggest?q=',{cookie:admin});assert.deepEqual((await r.json()).items,[]);
   r=await request('/ui/browse?type=movie&board=top_rated',{cookie:admin});assert.equal(r.status,200);assert.deepEqual((await r.json()).items.map(i=>i.id),[550]);
   r=await request('/ui/browse?type=tv&board=top_rated',{cookie:admin});assert.equal(r.status,200);assert.deepEqual((await r.json()).items.map(i=>i.id),[1396]);
   r=await request('/ui/browse?type=movie&board=top_rated&page=2',{cookie:admin});assert.deepEqual((await r.json()).items,[]);

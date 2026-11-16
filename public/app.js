@@ -10,6 +10,7 @@ import { watchlistPreference } from './preferences.mjs';
 import { fetchJSON } from './request.mjs';
 import { createPlaybackRecovery } from './playback-recovery.mjs';
 import { libraryRoute, libraryPage, mountLibraryPage } from './library.mjs';
+import { createLiveSearch } from './search-ui.mjs';
 import { upcomingDetails } from './upcoming.mjs';
 import { settingsGroups, settingsNavigation, settingsOverview, mountSettingsNavigation, settingsPatch } from './settings-ui.mjs';
 // Safari can mark a tapped select as focus-visible. Track how focus was
@@ -144,37 +145,31 @@ function openSearch(){
   route({restoreScroll:false});
 }
 function renderSearch(version){
-  shell(`<div class="page search-page"><div class="page-head"><div><h1>Search</h1><p>Find movies and shows.</p></div></div><form id="search-form" role="search"><label class="search-field">${icon('search')}<input id="search" type="search" placeholder="Movies, shows, and more" aria-label="Search titles" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="search" maxlength="200"></label></form><p id="search-status" class="muted" role="status" aria-live="polite"></p><div id="results"></div></div>`);
-  const input=$('#search'),results=$('#results'),status=$('#search-status');
-  let timer,controller,sequence=0;
-  const empty=()=>`<div class="empty">${icon('search')}<h2>What are you in the mood for?</h2><p>Search by title to explore the catalog.</p></div>`;
-  results.innerHTML=empty();
-  function update(immediate=false){
-    clearTimeout(timer);controller?.abort();
-    const query=input.value.trim(),seq=++sequence;
-    if(query.length<2){status.textContent='';results.removeAttribute('aria-busy');results.innerHTML=query?'<div class="empty"><p>Enter at least two characters.</p></div>':empty();return;}
-    status.textContent='Searching…';results.setAttribute('aria-busy','true');
-    results.innerHTML='<div class="empty"><div class="spinner" aria-hidden="true"></div></div>';
-    const run=async()=>{
-      if(version!==state.route)return;
-      controller=new AbortController();
-      try{
-        const data=await api('browse?q='+encodeURIComponent(query),{signal:controller.signal});
-        if(version!==state.route||seq!==sequence)return;
-        status.textContent=data.items.length?`${data.items.length} ${data.items.length===1?'result':'results'} · Most relevant first`:'';
-        results.innerHTML=data.items.length?`<div class="grid">${data.items.map(item=>card(item,true)).join('')}</div>`:'<div class="empty"><h2>No matching titles</h2><p>Try a different title or a shorter search.</p></div>';
-      }catch(error){if(version===state.route&&seq===sequence&&error.name!=='AbortError'){status.textContent='';results.innerHTML=errorBox(error);}}
-      finally{if(version===state.route&&seq===sequence)results.removeAttribute('aria-busy');}
-    };
-    if(immediate)run();else timer=setTimeout(run,250);
-  }
-  input.addEventListener('input',event=>{if(!event.isComposing)update();});
-  input.addEventListener('compositionstart',()=>{clearTimeout(timer);controller?.abort();++sequence;});
-  input.addEventListener('compositionend',()=>update());
-  $('#search-form').addEventListener('submit',event=>{event.preventDefault();update(true);});
-  stopSearch=()=>{clearTimeout(timer);++sequence;controller?.abort();};
-  focusSearch();
+  shell(`<div class="page search-page"><header class="search-heading"><h1>Search</h1></header><form id="search-form" role="search"><div class="search-field">${icon('search')}<input id="search" type="search" placeholder="Movies and shows" aria-label="Search titles" aria-controls="results" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="search" maxlength="200"><button class="search-clear" type="button" aria-label="Clear search" hidden>${icon('close')}</button></div></form><div class="search-results-heading"><h2 id="search-results-title">Find your next watch</h2><span class="search-loading" aria-hidden="true" hidden></span></div><p id="search-status" role="status" aria-live="polite"></p><div id="results" aria-labelledby="search-results-title"></div></div>`);
+  const input=$('#search'),results=$('#results'),status=$('#search-status'),heading=$('#search-results-title'),clear=$('.search-clear'),loading=$('.search-loading');
+  let previousHTML='';
+  const render=({query,items,loading:busy,error=''})=>{
+    if(version!==state.route)return;
+    clear.hidden=!input.value;loading.hidden=!busy;results.setAttribute('aria-busy',String(busy));
+    heading.textContent=query?'Top results':'Find your next watch';
+    status.textContent=error||(busy?'Updating results…':query?(items.length?`${items.length} ${items.length===1?'match':'matches'}`:query.length===1?'Keep typing to search more titles.':'No matches. Try a different title.'):'Start typing a title. Results appear as you type.');
+    const html=items.length?`<div class="search-results-list">${items.map(item=>{
+      const type=item.type||item.media_type||'movie',name=title(item),art=item.poster_path||item.backdrop_path;
+      return `<a class="search-result" href="#title/${type}/${item.id}"><div class="search-result-art">${art?image(art,'','w185'):icon(type==='tv'?'layers':'film')}</div><div class="search-result-copy"><h3>${esc(name)}</h3><p>${type==='tv'?'TV Show':'Movie'}${year(item)?' · '+esc(year(item)):''}${item.vote_average?' · ★ '+Number(item.vote_average).toFixed(1):''}</p></div>${icon('right')}</a>`;
+    }).join('')}</div>`:'';
+    if(html!==previousHTML){results.innerHTML=html;previousHTML=html;}
+  };
+  const search=createLiveSearch({request:api,render});
+  input.addEventListener('input',event=>{clear.hidden=!input.value;if(!event.isComposing)search.update(input.value);});
+  input.addEventListener('compositionstart',()=>search.pause());
+  input.addEventListener('compositionend',()=>search.update(input.value));
+  clear.onclick=()=>{input.value='';search.update('');focusSearch();};
+  input.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();clear.click();}});
+  $('#search-form').addEventListener('submit',event=>{event.preventDefault();search.update(input.value,true);});
+  stopSearch=()=>search.stop();
+  search.update('');focusSearch();
 }
+
 history.scrollRestoration='manual';
 const viewPositions=new Map();let visibleRoute='';
 async function profilesPage(){

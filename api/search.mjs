@@ -37,6 +37,7 @@ export function createSearchIndex() {
       entries.forEach((entry, index) => {
         const keys = new Set();
         for (const name of entry.names) for (const word of [...name.split(' '), compact(withoutArticle(name))]) {
+          if (word.length >= 1) keys.add(word.slice(0, 1));
           if (word.length >= 2) keys.add(word.slice(0, 2));
           if (word.length >= 3) keys.add(word.slice(0, 3));
         }

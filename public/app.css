@@ -25,7 +25,14 @@
 .field>.field-row{display:flex;margin-bottom:0}
 
 /* Touch focus keeps controls usable without the keyboard's blue outer ring. */
-.search-page #search-status:not(:empty){margin:-12px 0 20px;font-size:13px}
+.search-page{max-width:1180px;margin-inline:auto}.search-heading{margin-bottom:24px}.search-heading h1{font-size:40px;letter-spacing:-.04em}
+.search-page .search-field{margin:0;min-height:54px;padding:4px 10px 4px 16px;gap:10px;background:#1c1c20;border:1px solid #ffffff08;border-radius:14px}.search-page .search-field>.icon{width:21px;height:21px;color:#a1a1aa}
+.search-page .search-field input{flex:1;width:0;min-width:0;min-height:44px;padding:8px 0;background:transparent;border:0;border-radius:0;box-shadow:none;outline:none;font-size:17px}.search-page .search-field:focus-within{border-color:#ffffff35}.search-page .search-field input::-webkit-search-cancel-button{display:none}
+.search-clear{display:grid;place-items:center;width:44px;height:44px;flex:none;border-radius:50%;background:transparent;color:#9b9ba5}.search-clear .icon{width:17px;height:17px;stroke-width:2.3}.search-clear:hover{color:var(--ink);background:#ffffff0a}.search-clear[hidden],.search-loading[hidden]{display:none}
+.search-results-heading{display:flex;align-items:center;gap:12px;margin-top:30px}.search-results-heading h2{font-size:22px;font-weight:650;letter-spacing:-.025em}.search-page #search-status{margin:8px 0 18px;min-height:20px;color:var(--muted);font-size:13px;line-height:1.6}.search-loading{width:14px;height:14px;border:1.5px solid #ffffff25;border-top-color:#c7c7cf;border-radius:50%;animation:spin .8s linear infinite}
+.search-results-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:36px}.search-result{display:flex;align-items:center;gap:16px;padding:14px 0;min-width:0;border-bottom:1px solid #ffffff0b}.search-result:hover .search-result-copy h3{color:#9ddbf0}.search-result-art{width:58px;aspect-ratio:2/3;flex:none;border-radius:8px;overflow:hidden;background:#1c1c20;display:grid;place-items:center;color:var(--muted)}.search-result-art img{width:100%;height:100%;object-fit:cover}.search-result-copy{flex:1;min-width:0}.search-result-copy h3{font-size:17px;line-height:1.4;font-weight:550;letter-spacing:-.015em;overflow-wrap:anywhere}.search-result-copy p{margin-top:5px;color:var(--muted);font-size:12px}.search-result>.icon{width:17px;height:17px;color:#70717d;flex:none}
+@media(max-width:700px){.search-heading{margin-bottom:20px}.search-heading h1{font-size:34px}.search-page .search-field{min-height:50px;border-radius:12px}.search-results-list{grid-template-columns:1fr}.search-results-heading{margin-top:28px}.search-results-heading h2{font-size:21px}.search-result{gap:14px;padding:12px 0}.search-result-art{width:52px}.search-result-copy h3{font-size:16px}}
+@media(prefers-reduced-motion:reduce){.search-loading{animation:none}}
 html[data-input=touch] :is(button,a,input,select,textarea,summary,[tabindex]):focus:not(.profile-swatch[aria-pressed=true]){outline:none}
 html[data-input=touch] select:focus{border-color:#ffffff1b}
 html[data-input=touch] .switch input:focus-visible+span{outline:none}

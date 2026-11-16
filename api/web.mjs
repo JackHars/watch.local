@@ -12,6 +12,7 @@ import { createContinueWatching } from './continue-watching.mjs';
 import { createLibrary } from './library.mjs';
 import { sportsArtworkOrigins } from './sports.mjs';
 import { upcomingForShow } from './upcoming.mjs';
+import { metadataService } from './metadata.mjs';
 
 const activity = [], started = Date.now();
 const updates = createUpdateControl(join(dataDirectory, 'updates'));
@@ -49,6 +50,7 @@ const files = new Map([
   ['/library.mjs', ['../public/library.mjs','text/javascript']],
   ['/upcoming.mjs', ['../public/upcoming.mjs','text/javascript']],
   ['/settings-ui.mjs', ['../public/settings-ui.mjs','text/javascript']],
+  ['/search-ui.mjs', ['../public/search-ui.mjs','text/javascript']],
   ['/live.mjs', ['../public/live.mjs','text/javascript']],
   ['/live-model.mjs', ['../public/live-model.mjs','text/javascript']],
   ['/updates.mjs', ['../public/updates.mjs','text/javascript']],
@@ -110,6 +112,10 @@ export async function handleWeb(req, res) {
     if (path === '/ui/library' && req.method === 'GET') {
       json(res, 200, await library(user.id, url.searchParams.get('profileId'), Object.fromEntries(url.searchParams))); return true;
     }
+    if (path === '/ui/search/suggest' && req.method === 'GET') {
+      const items = await metadataService.suggest(url.searchParams.get('q'));
+      json(res,200,{items:items.map(item=>({...item,type:item.media_type}))}); return true;
+    }
     if (path === '/ui/browse' && req.method === 'GET') {
       const requestedType = url.searchParams.get('type');
       const type = ['movie','tv','all'].includes(requestedType) ? requestedType : 'movie';
@@ -119,7 +125,12 @@ export async function handleWeb(req, res) {
       const boards = type === 'all' ? ['trending'] : ['popular','top_rated','trending',type === 'movie' ? 'now_playing' : 'on_the_air'];
       if (!query && !boards.includes(board)) throw problem(400,'Unknown catalog category.');
       const path = query ? '/search/multi' : board === 'trending' ? `/trending/${type}/day` : board === 'top_rated' ? `/curated/${type}/top_rated` : `/${type}/${board}`;
-      const data = await getCatalogData(path, { page, ...(query ? { query } : {}) });
+      const controller = query ? new AbortController() : null;
+      const cancel = () => controller?.abort();
+      if(controller)res.once('close',cancel);
+      let data;
+      try { data = await getCatalogData(path, { page, ...(query ? { query } : {}) }, controller?.signal); }
+      finally { res.off('close',cancel); }
       json(res,200,{items:(data.results||[]).filter(i=>!i.adult && (query || type === 'all' ? ['movie','tv'].includes(i.media_type):!i.media_type || i.media_type === type)).map(i=>({...i,type:i.media_type||type})),page,pages:data.total_pages}); return true;
     }
     if (['/ui/title','/ui/episodes'].includes(path) && req.method === 'GET') {

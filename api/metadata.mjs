@@ -5,7 +5,7 @@ import { settingsStore, dataDirectory, problem } from './settings.mjs';
 import { requestTMDB } from './tmdb.mjs';
 import { fetchTrendingPanel, fetchPublicIMDb } from './tmdb-public.mjs';
 import { collectTopRated } from './top-rated.mjs';
-import { improveSearchResults, createSearchIndex, mergeSearchCandidates } from './search.mjs';
+import { improveSearchResults, createSearchIndex, mergeSearchCandidates, rankSearchResults } from './search.mjs';
 
 // Public catalog endpoints used by the Vidrift/7Movies web player.
 // No embedded API key or direct TMDB request is needed for these sources.
@@ -331,7 +331,16 @@ export function createMetadataService({ directory, fetcher = (...args) => fetch(
     if (!pending.has(pendingKey)) pending.set(pendingKey, run().finally(() => pending.delete(pendingKey)));
     return finish(await pending.get(pendingKey));
   }
-  return { request, flush, setSearchCatalog: catalog => searchCatalog.replace(catalog) };
+  async function suggest(query) {
+    await initialize();
+    query = String(query || '').trim().slice(0, 200);
+    if (!query) return [];
+    // Never wait on an external catalog for the first matches while typing.
+    const candidates = mergeSearchCandidates([], [...searchCatalog.matching(query), ...cachedSearchCandidates()], query);
+    const trending = [cache.get(TRENDING_KEY), cache.get(SEARCH_TRENDING_KEY)].filter(entry => entry && now() - entry.at < HOUR).flatMap(entry => entry.data.results || []);
+    return rankSearchResults(candidates, query, { now: now(), trending }).slice(0, 30);
+  }
+  return { request, suggest, flush, setSearchCatalog: catalog => searchCatalog.replace(catalog) };
 }
 
 export const metadataService = createMetadataService({ directory: dataDirectory });

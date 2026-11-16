@@ -15,6 +15,20 @@ const response = data => new Response(JSON.stringify(data), { headers: { 'conten
 const panel = await readFile(new URL('./fixtures/trending-panel.html',import.meta.url),'utf8');
 const html = text => new Response(text,{headers:{'content-type':'text/html'}});
 
+test('live suggestions use indexed and cached titles without external requests', async () => {
+  let calls = 0;
+  const service = createMetadataService({ getConfig: () => ({}), fetcher: async () => { calls++; return response(movie); } });
+  await service.request('/movie/550');
+  service.setSearchCatalog({ series: [{ id: 7, name: 'VisionQuest', popularity: 200 }, { id: 8, name: 'Adult vision', adult: true }] });
+  for (const query of ['v', 'vi', 'vision quest']) assert.equal((await service.suggest(query))[0].id, 7);
+  assert.equal((await service.suggest('fight'))[0].id, 550);
+  assert.deepEqual(await service.suggest(''), []);
+  assert.deepEqual(await service.suggest('adult'), []);
+  assert.equal(calls, 1, 'typing must not trigger network lookups');
+  service.setSearchCatalog({ series: [] });
+  assert.deepEqual(await service.suggest('vision'), []);
+});
+
 test('curated top-rated pages share one ranked snapshot, survive restarts and retain complete results during partial failures',async()=>{
   const directory=await mkdtemp(join(tmpdir(),'watchlocal-top-rated-'));
   let time=Date.parse('2026-11-11T12:00:00Z'),phase=0,calls=0,restored;
