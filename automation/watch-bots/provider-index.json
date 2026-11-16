@@ -273,6 +273,20 @@
       ]
     },
     {
+      "id": "bingr",
+      "name": "Bingr",
+      "kind": "vod",
+      "origins": [
+        "https://bingr.st",
+        "https://bingr.one",
+        "https://dash-hls-bridge.johndoesdmc.workers.dev"
+      ],
+      "implementation": [
+        "api/bingr.mjs",
+        "api/providers.mjs"
+      ]
+    },
+    {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",
