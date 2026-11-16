@@ -26,6 +26,7 @@ test('health check shows each provider once and labels disabled sources', () => 
   assert.equal((html.match(/data-health-provider=/g) || []).length, 2);
   assert.match(html, /Breaking Bad/);
   assert.match(html, /Season 1, Episode 1/);
+  assert.match(html, /Play all previews/);
   assert.match(html, /data-health-provider="zstream" data-state="waiting"/);
   assert.match(html, /data-health-provider="vidrift" data-state="disabled"/);
 });
