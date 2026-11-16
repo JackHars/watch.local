@@ -1,8 +1,10 @@
 const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
 
 export function healthCheckMarkup(providers, enabled) {
-  return `<div class="health-intro"><div><p class="health-eyebrow">Provider diagnostics</p><h3>Breaking Bad <span>· Season 1, Episode 1</span></h3><p>Each source is checked independently. A source can exist but use a codec this browser cannot play. Inspect video frames too: a provider may stream its own error screen.</p></div><div class="health-intro-actions"><button class="btn ghost small" id="health-play-all" type="button" disabled>Play all previews</button><button class="btn ghost small" id="health-run" type="button">Test all again</button></div></div><p class="health-summary" id="health-summary" role="status" aria-live="polite">Preparing checks…</p><div class="health-grid">${providers.map(({ id, name }) => `<article class="health-tile" data-health-provider="${escape(id)}" data-state="${enabled.includes(id) ? 'waiting' : 'disabled'}"><div class="health-screen"><video muted playsinline preload="none" aria-label="${escape(name)} preview"></video><span class="health-placeholder" aria-hidden="true">${escape(name.slice(0, 1))}</span></div><div class="health-tile-body"><div class="health-tile-heading"><strong>${escape(name)}</strong><span class="health-state">${enabled.includes(id) ? 'Waiting' : 'Disabled'}</span></div><p class="health-detail">${enabled.includes(id) ? 'Waiting to check this source.' : 'Turn on this provider to test it.'}</p><div class="health-tile-actions"><button type="button" class="health-preview" hidden>Play preview</button><button type="button" class="health-retry" ${enabled.includes(id) ? '' : 'hidden'}>Retry</button></div></div></article>`).join('')}</div>`;
+  return `<div class="health-intro"><div><p class="health-eyebrow">Provider diagnostics</p><h3>Breaking Bad <span>· Season 1, Episode 1</span></h3><p>Each source is checked independently. Some sources use codecs this browser cannot play, while others serve a short error clip instead of the episode.</p></div><div class="health-intro-actions"><button class="btn ghost small" id="health-play-all" type="button" disabled>Play all previews</button><button class="btn ghost small" id="health-run" type="button">Test all again</button></div></div><p class="health-summary" id="health-summary" role="status" aria-live="polite">Preparing checks…</p><div class="health-grid">${providers.map(({ id, name }) => `<article class="health-tile" data-health-provider="${escape(id)}" data-state="${enabled.includes(id) ? 'waiting' : 'disabled'}"><div class="health-screen"><video muted playsinline preload="none" aria-label="${escape(name)} preview"></video><span class="health-placeholder" aria-hidden="true">${escape(name.slice(0, 1))}</span></div><div class="health-tile-body"><div class="health-tile-heading"><strong>${escape(name)}</strong><span class="health-state">${enabled.includes(id) ? 'Waiting' : 'Disabled'}</span></div><p class="health-detail">${enabled.includes(id) ? 'Waiting to check this source.' : 'Turn on this provider to test it.'}</p><div class="health-tile-actions"><button type="button" class="health-preview" hidden>Play preview</button><button type="button" class="health-retry" ${enabled.includes(id) ? '' : 'hidden'}>Retry</button></div></div></article>`).join('')}</div>`;
 }
+
+export const suspiciousHealthDuration = seconds => Number.isFinite(seconds) && seconds > 0 && seconds < 600;
 
 export function healthFailureState(sourceFound, error) {
   if (!sourceFound) return 'failed';
@@ -18,18 +20,18 @@ export function mountHealthCheck(root, { providers, enabled, api, Hls }) {
   const summary = root.querySelector('#health-summary');
   const allButton = root.querySelector('#health-play-all');
   const updateSummary = () => {
-    const counts = { checking: 0, waiting: 0, playable: 0, failed: 0, 'preview-failed': 0, unsupported: 0, disabled: 0 };
+    const counts = { checking: 0, waiting: 0, playable: 0, failed: 0, 'preview-failed': 0, unsupported: 0, 'short-stream': 0, disabled: 0 };
     for (const card of cards.values()) counts[card.dataset.state]++;
-    summary.textContent = `${counts.playable} video loaded · ${counts['preview-failed']} preview failed · ${counts.unsupported} unsupported here · ${counts.failed} no source · ${counts.checking + counts.waiting} remaining${counts.disabled ? ` · ${counts.disabled} disabled` : ''}`;
+    summary.textContent = `${counts.playable} video loaded · ${counts['short-stream']} short clips · ${counts['preview-failed']} preview failed · ${counts.unsupported} unsupported here · ${counts.failed} no source · ${counts.checking + counts.waiting} remaining${counts.disabled ? ` · ${counts.disabled} disabled` : ''}`;
     allButton.disabled = counts.playable === 0;
     allButton.textContent = playAll ? 'Pause all previews' : 'Play all previews';
   };
   const setState = (card, state, detail) => {
     if (stopped || !card.isConnected) return;
     card.dataset.state = state;
-    card.querySelector('.health-state').textContent = { waiting: 'Waiting', checking: 'Checking', playable: 'Video loaded', failed: 'No source', 'preview-failed': 'Preview failed', unsupported: 'Unsupported here', disabled: 'Disabled' }[state];
+    card.querySelector('.health-state').textContent = { waiting: 'Waiting', checking: 'Checking', playable: 'Video loaded', failed: 'No source', 'preview-failed': 'Preview failed', unsupported: 'Unsupported here', 'short-stream': 'Short clip', disabled: 'Disabled' }[state];
     card.querySelector('.health-detail').textContent = detail;
-    card.querySelector('.health-preview').hidden = state !== 'playable';
+    card.querySelector('.health-preview').hidden = state !== 'playable' && state !== 'short-stream';
     card.querySelector('.health-retry').hidden = state === 'disabled' || state === 'checking' || state === 'waiting';
     updateSummary();
   };
@@ -47,7 +49,7 @@ export function mountHealthCheck(root, { providers, enabled, api, Hls }) {
   };
   const movePreview = (id, playing) => {
     const card = cards.get(id), video = card?.querySelector('video');
-    if (!video || card.dataset.state !== 'playable') return;
+    if (!video || !['playable', 'short-stream'].includes(card.dataset.state)) return;
     const button = card.querySelector('.health-preview');
     if (playing) {
       engines.get(id)?.startLoad();
@@ -108,7 +110,9 @@ export function mountHealthCheck(root, { providers, enabled, api, Hls }) {
       });
       if (stopped || run !== generation) return;
       video.pause(); engines.get(id)?.stopLoad();
-      setState(card, 'playable', 'First video frame loaded. Check it for provider error screens.');
+      const seconds = video.duration;
+      if (suspiciousHealthDuration(seconds)) setState(card, 'short-stream', `Only ${Math.round(seconds / 60)} minute${seconds >= 90 ? 's' : ''} of video; expected a full episode. This may be an error clip.`);
+      else setState(card, 'playable', 'First video frame loaded. Check it for provider error screens.');
       if (playAll) movePreview(id, true);
     } catch (error) {
       if (stopped || run !== generation) return;
