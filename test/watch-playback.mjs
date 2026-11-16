@@ -1,6 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { trackPlayback } from '../public/watch-progress.mjs';
+import { trackPlayback, formatTimeLeft } from '../public/watch-progress.mjs';
+
+test('remaining time uses hours and minutes at the hour boundary', () => {
+  assert.equal(formatTimeLeft(172 * 60), '2 hr 52 min left');
+  assert.equal(formatTimeLeft(51 * 60), '51 min left');
+  assert.equal(formatTimeLeft(60 * 60), '1 hr left');
+  assert.equal(formatTimeLeft(59 * 60 + 1), '1 hr left');
+  assert.equal(formatTimeLeft(60 * 60 + 1), '1 hr 1 min left');
+  assert.equal(formatTimeLeft(5), '1 min left');
+  assert.equal(formatTimeLeft(NaN), '');
+});
 
 const item = { profileId: 'original-profile', type: 'tv', id: 1396, season: 2, episode: 3, title: 'A series' };
 function fixture() {

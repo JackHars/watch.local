@@ -1,4 +1,11 @@
 // Track the media timeline, not downloaded HLS segments (which run ahead).
+export function formatTimeLeft(seconds) {
+  if (!Number.isFinite(seconds)) return '';
+  const minutes = Math.max(1, Math.ceil(seconds / 60));
+  const hours = Math.floor(minutes / 60), remainder = minutes % 60;
+  return `${hours ? `${hours} hr${remainder ? ` ${remainder} min` : ''}` : `${minutes} min`} left`;
+}
+
 export function trackPlayback(video, { item, progress, onError = () => {} }) {
   if (!['movie', 'tv'].includes(item.type)) return null;
   const playbackId = [...crypto.getRandomValues(new Uint8Array(16))].map(value => value.toString(16).padStart(2, '0')).join('');
