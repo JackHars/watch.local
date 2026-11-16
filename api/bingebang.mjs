@@ -52,17 +52,37 @@ function xorDecode(data, key) {
   return out;
 }
 
-function payloadFromPage(html) {
+export function payloadFromPage(html) {
   const match = String(html).match(/<script[^>]*>\s*\(function\(\)\{var k=(\[[\d,]+\]),d=(\[[\d,]+\])/s);
   if (!match) throw new Error('BingeBang play page has no player payload');
   let decoded;
   try { decoded = xorDecode(JSON.parse(match[2]), JSON.parse(match[1])); }
   catch { throw new Error('BingeBang player payload is unreadable'); }
-  if (decoded.length > 16384 || !decoded.includes('__BB_PLAYER__')) throw new Error('BingeBang player payload format changed');
-  const window = {};
-  try { new Function('window', decoded + '\nreturn window.__BB_PLAYER__;')(window); }
-  catch { throw new Error('BingeBang player payload is unreadable'); }
-  const payload = window.__BB_PLAYER__;
+  // This text comes from a live site. Its object also contains executable
+  // methods, but the resolver only needs these literal identity and routing
+  // fields. Never evaluate the decoded JavaScript in the server process.
+  if (decoded.length > 16384) throw new Error('BingeBang player payload format changed');
+  const prefix = decoded.match(/^\s*window\.__BB_PLAYER__\s*=\s*\{([\s\S]*?)(?:,\s*resolve\s*:\s*function\b|}\s*;\s*$)/)?.[1];
+  if (!prefix) throw new Error('BingeBang player payload format changed');
+  const field = (name, type, required = true) => {
+    const string = String.raw`"(?:\\.|[^"\\])*"`;
+    const number = String.raw`(?:0|[1-9][0-9]*)`;
+    const literal = type === 'string' ? string : type === 'number' ? number : `(?:${string}|${number})`;
+    const matches = [...prefix.matchAll(new RegExp(String.raw`(?:^|[,\n])\s*(?:"${name}"|${name})\s*:\s*(${literal})\s*(?=,|$)`, 'g'))];
+    if (!required && matches.length === 0) return undefined;
+    if (matches.length !== 1) throw new Error('BingeBang player payload format changed');
+    try { return JSON.parse(matches[0][1]); }
+    catch { throw new Error('BingeBang player payload is unreadable'); }
+  };
+  const payload = {
+    ticket: field('ticket', 'string'),
+    mediaType: field('mediaType', 'string'),
+    mediaId: field('mediaId', 'number'),
+    segmentsTmdb: field('segmentsTmdb', 'id', false),
+    season: field('season', 'number', false),
+    episode: field('episode', 'number', false),
+    sourcesUrl: field('sourcesUrl', 'string', false),
+  };
   if (!payload || typeof payload.ticket !== 'string' || payload.ticket.length < 32 || payload.ticket.length > 512) {
     throw new Error('BingeBang player payload is invalid');
   }

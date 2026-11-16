@@ -5,7 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createProviderResolver, createProviderContext } from '../api/providers.mjs';
-import { createBingebangResolver } from '../api/bingebang.mjs';
+import { createBingebangResolver, payloadFromPage } from '../api/bingebang.mjs';
 
 // BingeBang (bingebang.sx) fixture: mirrors the verified ticket chain —
 // plain JSON movie meta, XOR-encoded play pages (7-byte repeating key in
@@ -26,6 +26,9 @@ const T_B = tkt('B');
 const KEY7 = [1, 2, 3, 4, 5, 6, 7];
 function payloadHtml(payload) {
   const text = 'window.__BB_PLAYER__ = ' + JSON.stringify(payload) + ';';
+  return payloadHtmlSource(text);
+}
+function payloadHtmlSource(text) {
   const d = [...Buffer.from(text, 'utf8')].map((byte, i) => byte ^ KEY7[i % KEY7.length]);
   return `<html><body><script>(function(){var k=[${KEY7.join(',')}],d=[${d.join(',')}];/* site player bootstrap */</script></body></html>`;
 }
@@ -48,6 +51,14 @@ const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0
 const moviePayload = { ticket: T_MOVIE, mediaType: 'movie', mediaId: 550, imdb: 'tt0000001', segmentsTmdb: 999, title: 'Fixture Movie', sourcesUrl: '/api/player/sources' };
 const tvPayloadMismatch = { ticket: T_A, mediaType: 'episode', mediaId: 311, imdb: 'tt0000002', segmentsTmdb: 777, season: 1, episode: 1, title: 'Fixture Show (Clone)', sourcesUrl: '/api/player/sources' };
 const tvPayloadMatch = { ticket: T_B, mediaType: 'episode', mediaId: 311, imdb: 'tt0000002', segmentsTmdb: 550, season: 1, episode: 1, title: 'Fixture Show', sourcesUrl: '/api/player/sources' };
+
+test('BingeBang reads player data without executing decoded site JavaScript', () => {
+  const marker = '__watchlocal_bingebang_injection_test__';
+  const decoded = `window.__BB_PLAYER__ = {ticket: ${JSON.stringify(T_MOVIE)}, mediaType: "movie", mediaId: 550, sourcesUrl: "/api/player/sources", resolve: function () { globalThis.${marker} = true; }}; globalThis.${marker} = true;`;
+  const payload = payloadFromPage(payloadHtmlSource(decoded));
+  assert.equal(payload.mediaId, 550);
+  assert.equal(globalThis[marker], undefined);
+});
 
 function bingebangFetch({ moviePayload: mp = null, tvPages = null, sources = null, resolve: ro = null, sources429 = 0, baitSegments = false } = {}) {
   const calls = [];
