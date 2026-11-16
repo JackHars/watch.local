@@ -1,7 +1,7 @@
 const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
 
 export function healthCheckMarkup(providers, enabled) {
-  return `<div class="health-intro"><div><p class="health-eyebrow">Provider diagnostics</p><h3>Breaking Bad <span>· Season 1, Episode 1</span></h3><p>Each source is checked independently. Some sources use codecs this browser cannot play, while others serve a short error clip instead of the episode.</p></div><div class="health-intro-actions"><button class="btn ghost small" id="health-play-all" type="button" disabled>Play all previews</button><button class="btn ghost small" id="health-run" type="button">Test all again</button></div></div><p class="health-summary" id="health-summary" role="status" aria-live="polite">Preparing checks…</p><div class="health-grid">${providers.map(({ id, name }) => `<article class="health-tile" data-health-provider="${escape(id)}" data-state="${enabled.includes(id) ? 'waiting' : 'disabled'}"><div class="health-screen"><video muted playsinline preload="none" aria-label="${escape(name)} preview"></video><span class="health-placeholder" aria-hidden="true">${escape(name.slice(0, 1))}</span></div><div class="health-tile-body"><div class="health-tile-heading"><strong>${escape(name)}</strong><span class="health-state">${enabled.includes(id) ? 'Waiting' : 'Disabled'}</span></div><p class="health-detail">${enabled.includes(id) ? 'Waiting to check this source.' : 'Turn on this provider to test it.'}</p><div class="health-tile-actions"><button type="button" class="health-preview" hidden>Play preview</button><button type="button" class="health-retry" ${enabled.includes(id) ? '' : 'hidden'}>Retry</button></div></div></article>`).join('')}</div>`;
+  return `<div class="health-intro"><div><p class="health-eyebrow">Provider diagnostics</p><h3>Breaking Bad <span>· Season 1, Episode 1</span></h3><p>Each source is checked independently. A decoded frame stays visible without keeping every video player running. Some sources use unsupported codecs or serve a short error clip instead of the episode.</p></div><div class="health-intro-actions"><button class="btn ghost small" id="health-run" type="button">Test all again</button></div></div><p class="health-summary" id="health-summary" role="status" aria-live="polite">Preparing checks…</p><div class="health-grid">${providers.map(({ id, name }) => `<article class="health-tile" data-health-provider="${escape(id)}" data-state="${enabled.includes(id) ? 'waiting' : 'disabled'}"><div class="health-screen"><video muted playsinline preload="none" aria-label="${escape(name)} preview"></video><canvas class="health-snapshot" width="640" height="360" aria-hidden="true" hidden></canvas><span class="health-placeholder" aria-hidden="true">${escape(name.slice(0, 1))}</span></div><div class="health-tile-body"><div class="health-tile-heading"><strong>${escape(name)}</strong><span class="health-state">${enabled.includes(id) ? 'Waiting' : 'Disabled'}</span></div><p class="health-detail">${enabled.includes(id) ? 'Waiting to check this source.' : 'Turn on this provider to test it.'}</p><div class="health-tile-actions"><button type="button" class="health-preview" hidden>Play preview</button><button type="button" class="health-retry" ${enabled.includes(id) ? '' : 'hidden'}>Retry</button></div></div></article>`).join('')}</div>`;
 }
 
 export const suspiciousHealthDuration = seconds => Number.isFinite(seconds) && seconds > 0 && seconds < 600;
@@ -18,20 +18,17 @@ export function healthFailureState(sourceFound, error) {
   return error?.healthCode === 'unsupported' ? 'unsupported' : 'preview-failed';
 }
 
-// Stop after the first decoded frame. Keeping 20+ streams playing would turn
-// the health check itself into a false failure on small servers and phones.
+// Capture one frame and release the decoder. Even paused MSE players hold
+// buffers; keeping 20+ attached can crash Chrome during a full health check.
 export function mountHealthCheck(root, { providers, enabled, api, Hls }) {
   const cards = new Map([...root.querySelectorAll('[data-health-provider]')].map(card => [card.dataset.healthProvider, card]));
-  const active = new Map(), engines = new Map();
-  let generation = 0, stopped = false, playAll = false;
+  const active = new Map(), engines = new Map(), sourceURLs = new Map();
+  let generation = 0, stopped = false, previewId = null;
   const summary = root.querySelector('#health-summary');
-  const allButton = root.querySelector('#health-play-all');
   const updateSummary = () => {
     const counts = { checking: 0, waiting: 0, playable: 0, failed: 0, 'preview-failed': 0, unsupported: 0, 'short-stream': 0, disabled: 0 };
     for (const card of cards.values()) counts[card.dataset.state]++;
     summary.textContent = `${counts.playable} video loaded · ${counts['short-stream']} short clips · ${counts['preview-failed']} preview failed · ${counts.unsupported} unsupported here · ${counts.failed} no source · ${counts.checking + counts.waiting} remaining${counts.disabled ? ` · ${counts.disabled} disabled` : ''}`;
-    allButton.disabled = counts.playable === 0;
-    allButton.textContent = playAll ? 'Pause all previews' : 'Play all previews';
   };
   const setState = (card, state, detail) => {
     if (stopped || !card.isConnected) return;
@@ -42,29 +39,46 @@ export function mountHealthCheck(root, { providers, enabled, api, Hls }) {
     card.querySelector('.health-retry').hidden = state === 'disabled' || state === 'checking' || state === 'waiting';
     updateSummary();
   };
+  const releaseMedia = id => {
+    const card = cards.get(id), video = card?.querySelector('video');
+    engines.get(id)?.destroy(); engines.delete(id);
+    if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
+    if (card) { delete card.dataset.previewing; card.querySelector('.health-preview').textContent = 'Play preview'; }
+    if (previewId === id) previewId = null;
+  };
   const dispose = () => {
     generation++;
     for (const controller of active.values()) controller.abort();
-    active.clear();
-    for (const engine of engines.values()) engine.destroy();
-    engines.clear();
-    for (const card of cards.values()) {
-      const video = card.querySelector('video');
-      video.pause(); video.removeAttribute('src'); video.load();
-      card.querySelector('.health-preview').textContent = 'Play preview';
+    active.clear(); sourceURLs.clear();
+    for (const [id, card] of cards) {
+      releaseMedia(id);
+      card.querySelector('canvas').hidden = true;
     }
   };
   const movePreview = (id, playing) => {
     const card = cards.get(id), video = card?.querySelector('video');
     if (!video || !['playable', 'short-stream'].includes(card.dataset.state)) return;
-    const button = card.querySelector('.health-preview');
-    if (playing) {
-      engines.get(id)?.startLoad();
-      video.play().then(() => { button.textContent = 'Pause preview'; }).catch(() => {
-        button.textContent = 'Play preview';
-        setState(card, card.dataset.state, 'Frame loaded. Tap to start this preview.');
-      });
-    } else { video.pause(); engines.get(id)?.stopLoad(); button.textContent = 'Play preview'; }
+    if (!playing) return releaseMedia(id);
+    if (previewId) releaseMedia(previewId);
+    const url = sourceURLs.get(id), button = card.querySelector('.health-preview');
+    if (!url) return;
+    previewId = id; card.dataset.previewing = 'true'; button.textContent = 'Loading preview…';
+    const fail = message => {
+      if (previewId !== id) return;
+      releaseMedia(id);
+      setState(card, 'preview-failed', message);
+    };
+    const start = () => video.play().then(() => { if (previewId === id) button.textContent = 'Pause preview'; })
+      .catch(error => fail(error.name === 'NotAllowedError' ? 'The browser blocked playback.' : 'Preview could not start. Retry this source.'));
+    const mode = healthPlayerMode(video, Hls, navigator.vendor);
+    if (mode === 'native') { video.src = url; start(); }
+    else if (mode === 'hlsjs') {
+      const engine = new Hls({ maxBufferLength: 5, backBufferLength: 0 });
+      engines.set(id, engine);
+      engine.on(Hls.Events.MANIFEST_PARSED, start);
+      engine.on(Hls.Events.ERROR, (_event, data) => { if (data.fatal) fail(data.details || 'Preview stopped.'); });
+      engine.loadSource(url); engine.attachMedia(video);
+    } else fail('This browser cannot play HLS previews.');
   };
   const check = async (id, run) => {
     const card = cards.get(id);
@@ -121,22 +135,23 @@ export function mountHealthCheck(root, { providers, enabled, api, Hls }) {
         } else finish(Error('This browser cannot play HLS previews.'));
       });
       if (stopped || run !== generation) return;
-      video.pause(); engines.get(id)?.stopLoad();
       const seconds = video.duration;
+      const canvas = card.querySelector('canvas');
+      try { canvas.getContext('2d', { alpha: false }).drawImage(video, 0, 0, canvas.width, canvas.height); canvas.hidden = false; }
+      catch { canvas.hidden = true; }
+      sourceURLs.set(id, result.url);
+      releaseMedia(id);
       if (suspiciousHealthDuration(seconds)) setState(card, 'short-stream', `Only ${Math.round(seconds / 60)} minute${seconds >= 90 ? 's' : ''} of video; expected a full episode. This may be an error clip.`);
       else setState(card, 'playable', 'First video frame loaded. Check it for provider error screens.');
-      if (playAll) movePreview(id, true);
     } catch (error) {
       if (stopped || run !== generation) return;
-      engines.get(id)?.destroy(); engines.delete(id);
-      video.pause(); video.removeAttribute('src'); video.load();
+      releaseMedia(id);
       setState(card, healthFailureState(sourceFound, error), error.message || 'No playable video.');
     } finally {
       if (active.get(id) === controller) active.delete(id);
     }
   };
   const runAll = () => {
-    playAll = false;
     dispose();
     const run = generation, queue = providers.filter(provider => enabled.includes(provider.id)).map(provider => provider.id);
     for (const id of queue) setState(cards.get(id), 'waiting', 'Waiting to check this source.');
@@ -147,22 +162,16 @@ export function mountHealthCheck(root, { providers, enabled, api, Hls }) {
     }
   };
   root.querySelector('#health-run').onclick = runAll;
-  allButton.onclick = () => {
-    playAll = !playAll;
-    for (const [id, card] of cards) if (card.dataset.state === 'playable') movePreview(id, playAll);
-    updateSummary();
-  };
   root.addEventListener('click', event => {
     const card = event.target.closest('[data-health-provider]');
     if (!card) return;
     const id = card.dataset.healthProvider;
     if (event.target.closest('.health-retry')) {
-      engines.get(id)?.destroy(); engines.delete(id);
-      const video = card.querySelector('video'); video.pause(); video.removeAttribute('src'); video.load();
+      releaseMedia(id); sourceURLs.delete(id); card.querySelector('canvas').hidden = true;
       check(id, generation);
     }
     if (event.target.closest('.health-preview')) {
-      movePreview(id, card.querySelector('video').paused);
+      movePreview(id, card.dataset.previewing !== 'true');
     }
   });
   runAll();
