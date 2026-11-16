@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createUpcomingService, summarizeUpcoming } from '../api/upcoming.mjs';
+import { parseProductionReport, fetchProductionReport } from '../api/production-report.mjs';
+import { upcomingPresentation, upcomingCard } from '../public/upcoming.mjs';
 
 const today = '2026-11-15';
 const tmdb = { seasons: [
@@ -95,4 +97,72 @@ test('TVMaze fills a date only when TMDB has an undated season', async () => {
   assert.deepEqual(result.season, { number: 3, premiereDate: '2027-01-08' });
   assert.equal(result.source, 'TVMaze');
   assert.equal(calls.length, 3);
+});
+
+const overview = 'A nightmarish town traps all those who enter. The residents try to unravel the mystery.';
+const productionHTML = `<main><h1>From Season 5</h1><dl>
+  <dt>Type</dt><dd>Series</dd><dt>Production Status</dt><dd>Filming / In Production</dd>
+  <dt>Main release</dt><dd>2027</dd><dt>Scheduled start</dt><dd>July 06, 2026</dd>
+  <dt>Plot</dt><p>The mystery of a nightmarish town that traps all those who enter.</p>
+  </dl><time datetime="2026-11-09T13:37:13+00:00">November 9, 2026</time></main>`;
+const reportOptions = { title: 'FROM', season: 5, overview, now: Date.parse(today) };
+
+test('production reports preserve published windows and distinguish scheduled starts from actual starts', () => {
+  const report = parseProductionReport(productionHTML, reportOptions);
+  assert.equal(report.releaseWindow, '2027');
+  assert.equal(report.productionStatus, 'Filming / In production');
+  assert.equal(report.scheduledStart, '2026-07-06');
+  assert.equal(report.updatedAt, '2026-11-09');
+  assert.equal(report.confidence, 'reported');
+  assert.equal(report.startedAt, undefined);
+  assert.equal(parseProductionReport(productionHTML.replace('2027</dd>', '2024</dd>'), reportOptions).releaseWindow, null);
+});
+
+test('production reports reject other seasons, ambiguous names, and listing-index redirects', () => {
+  assert.equal(parseProductionReport(productionHTML, { ...reportOptions, season: 4 }), null);
+  assert.equal(parseProductionReport(productionHTML, { ...reportOptions, overview: 'A comedy about office colleagues.' }), null);
+  assert.equal(parseProductionReport('<main><h1>Production Listings</h1></main>', reportOptions), null);
+});
+
+test('production lookup uses only public fields on a fixed origin and tolerates source outages', async () => {
+  let calls = 0;
+  const fetcher = async (url, options) => {
+    calls++;
+    assert.equal(url, 'https://mande.net/production-listings/series/from/season-5');
+    assert.equal(options.redirect, 'error');
+    return new Response(productionHTML, { headers: { 'content-type': 'text/html' } });
+  };
+  const report = await fetchProductionReport(reportOptions, { fetcher, now: reportOptions.now });
+  assert.equal(report.releaseWindow, '2027');
+  assert.equal(calls, 1);
+  assert.equal(await fetchProductionReport(reportOptions, { fetcher: async () => new Response('', { status: 503 }) }), null);
+});
+
+test('undated seasons can include a sourced report without fabricating a premiere date', async () => {
+  const report = { ...parseProductionReport(productionHTML, reportOptions), url: 'https://mande.net/production-listings/series/from/season-5' };
+  const service = createUpcomingService({ configured: () => true, tmdbRequest: async () => ({ name: 'FROM', overview, seasons: [{ season_number: 4, episode_count: 10, air_date: '2026-04-19' }, { season_number: 5, episode_count: 0, air_date: null }] }),
+    catalog: async () => { throw Error('offline'); }, production: async input => { assert.equal(input.title, 'FROM'); assert.equal(input.season, 5); return report; }, now: () => Date.parse(today) });
+  const result = await service(124364);
+  assert.equal(result.season.premiereDate, null);
+  assert.equal(result.report.releaseWindow, '2027');
+  assert.equal('estimate' in result, false);
+});
+
+test('the card shows sourced expectations without a guessed countdown, and scheduled dates take priority', () => {
+  const report = { ...parseProductionReport(productionHTML, reportOptions), url: 'https://mande.net/production-listings/series/from/season-5' };
+  const data = { season: { number: 5, premiereDate: null }, report };
+  const reported = upcomingPresentation(data, { today });
+  assert.equal(reported.release, 'Expected 2027');
+  assert.equal(reported.status, 'Reported');
+  assert.equal(reported.eta, '');
+  assert.match(upcomingCard(data), /Filming \/ In production/);
+  assert.match(upcomingCard(data), /Production report/);
+  const scheduled = upcomingPresentation({ ...data, season: { number: 5, premiereDate: '2026-11-16' } }, { today });
+  assert.equal(scheduled.status, 'Scheduled');
+  assert.equal(scheduled.eta, 'Tomorrow');
+  assert.equal(scheduled.url, undefined);
+  const unknown = upcomingPresentation({ season: data.season, estimate: { earliest: '2027-06-01', latest: '2027-12-31' } }, { today });
+  assert.equal(unknown.release, 'Release date TBA');
+  assert.equal(unknown.eta, '');
+  assert.equal(upcomingPresentation({ ...data, report: { ...report, url: 'javascript:alert(1)' } }, { today }).status, 'Announced');
 });

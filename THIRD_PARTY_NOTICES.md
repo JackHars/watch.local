@@ -51,3 +51,8 @@ Upcoming season and episode information uses [TMDB](https://www.themoviedb.org/)
 first. When TMDB has no confirmed date, the app can supplement it with data
 provided by [TVMaze](https://www.tvmaze.com/). No TVMaze data is bundled in the
 repository.
+
+Public production status and anticipated release windows may be supplemented by
+[M&E production listings](https://mande.net/production-listings). These are shown
+as reports, with a link to the matching show and season. The app does not infer
+release dates from past seasons or retrieve restricted listing fields.

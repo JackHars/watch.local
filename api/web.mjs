@@ -47,6 +47,7 @@ const files = new Map([
   ['/preferences.mjs', ['../public/preferences.mjs','text/javascript']],
   ['/home.mjs', ['../public/home.mjs','text/javascript']],
   ['/library.mjs', ['../public/library.mjs','text/javascript']],
+  ['/upcoming.mjs', ['../public/upcoming.mjs','text/javascript']],
   ['/live.mjs', ['../public/live.mjs','text/javascript']],
   ['/live-model.mjs', ['../public/live-model.mjs','text/javascript']],
   ['/updates.mjs', ['../public/updates.mjs','text/javascript']],

@@ -51,6 +51,7 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/request.mjs')).status,200);
   assert.equal((await request('/home.mjs')).status,200);
   assert.equal((await request('/library.mjs')).status,200);
+  assert.equal((await request('/upcoming.mjs')).status,200);
   assert.equal((await request('/ui/library?type=movie')).status,401);
   assert.equal((await request('/updates.mjs')).status,200);
   assert.equal((await request('/update-repair.mjs')).status,200);

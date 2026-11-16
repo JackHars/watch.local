@@ -1,5 +1,6 @@
 import { getCatalogData } from './platform.mjs';
 import { requestTMDB, tmdbConfigured } from './tmdb.mjs';
+import { fetchProductionReport } from './production-report.mjs';
 
 const validDate = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
 const seasonNumber = value => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : 0;
@@ -44,13 +45,21 @@ export function summarizeUpcoming({ tmdb, maze, seasons = [], episodes = [], tod
   };
 }
 
-export function createUpcomingService({ catalog = getCatalogData, tmdbRequest = requestTMDB, configured = tmdbConfigured, fetcher = fetch, now = Date.now } = {}) {
+export function createUpcomingService({ catalog = getCatalogData, tmdbRequest = requestTMDB, configured = tmdbConfigured, fetcher = fetch, production = fetchProductionReport, now = Date.now } = {}) {
   const cache = new Map();
   const pending = new Map();
   async function mazeJSON(path) {
     const response = await fetcher(`https://api.tvmaze.com${path}`, { headers: { accept: 'application/json', 'user-agent': 'watch.local' }, signal: AbortSignal.timeout(6500), redirect: 'follow' });
     if (!response.ok) throw Error(`TVMaze HTTP ${response.status}`);
     return response.json();
+  }
+  async function withProduction(summary, tmdb, maze) {
+    const title = tmdb?.name || maze?.name;
+    if (!summary.season || summary.season.premiereDate || !title) return summary;
+    try {
+      const report = await production({ title, season: summary.season.number, overview: tmdb?.overview || maze?.summary || '' }, { now: now() });
+      return report ? { ...summary, report } : summary;
+    } catch { return summary; }
   }
   async function load(id) {
     const today = new Date(now()).toISOString().slice(0, 10);
@@ -77,8 +86,8 @@ export function createUpcomingService({ catalog = getCatalogData, tmdbRequest = 
         }
       } catch { /* The TMDB season list can still supply a forecast. */ }
     }
-    if (!maze) return primary;
-    return summarizeUpcoming({ tmdb, maze, seasons, episodes, tmdbId: id, today });
+    if (!maze) return withProduction(primary, tmdb, null);
+    return withProduction(summarizeUpcoming({ tmdb, maze, seasons, episodes, tmdbId: id, today }), tmdb, maze);
   }
   return async function upcoming(id) {
     const key = String(id), saved = cache.get(key), time = now();
