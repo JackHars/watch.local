@@ -58,6 +58,7 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/ui/updates/repair',{method:'POST',body:{}})).status,401);
   assert.match((await request('/health').then(r=>r.json())).revision,/^[a-f0-9]{40}$/);
   assert.equal((await request('/ui/profiles')).status,401);
+  assert.equal((await request('/ui/upcoming?id=1396')).status,401);
   assert.equal((await request('/ui/playback.m3u8?type=movie&id=550')).status,401);
   assert.equal((await request('/ui/updates')).status,401);
   assert.equal((await request('/ui/updates/check',{method:'POST',body:{}})).status,401);
@@ -68,6 +69,7 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/ui/login',{method:'POST',body:{username:'owner',password:'password123'},origin:'https://evil.test'})).status,403);
   let r=await request('/ui/login',{method:'POST',body:{username:'owner',password:'password123'},origin:base});assert.equal(r.status,200);const admin=r.headers.get('set-cookie').split(';')[0];assert.match(r.headers.get('set-cookie'),/HttpOnly/);
   assert.equal((await request('/ui/session',{cookie:admin}).then(r=>r.json())).setupRequired,false);
+  assert.equal((await request('/ui/upcoming?id=invalid',{cookie:admin})).status,400);
   assert.equal((await request('/ui/updates/repair',{cookie:admin,method:'POST',body:{command:'echo nope'}})).status,400);
   assert.equal((await request('/ui/updates/repair',{cookie:admin,method:'POST',body:{},origin:'https://evil.test'})).status,403);
   const repairId=randomBytes(16).toString('hex'),repairToken=randomBytes(32).toString('base64url');

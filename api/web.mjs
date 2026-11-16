@@ -11,6 +11,7 @@ import { watchProgressStore } from './watch-progress.mjs';
 import { createContinueWatching } from './continue-watching.mjs';
 import { createLibrary } from './library.mjs';
 import { sportsArtworkOrigins } from './sports.mjs';
+import { upcomingForShow } from './upcoming.mjs';
 
 const activity = [], started = Date.now();
 const updates = createUpdateControl(join(dataDirectory, 'updates'));
@@ -123,6 +124,11 @@ export async function handleWeb(req, res) {
       const id = url.searchParams.get('id'), type = url.searchParams.get('type') === 'tv' ? 'tv' : 'movie', season = url.searchParams.get('season') || '1';
       if (!/^[1-9]\d*$/.test(id||'') || !/^\d+$/.test(season)) throw problem(400,'Invalid title or season.');
       json(res,200,await getCatalogData(path === '/ui/episodes' ? `/tv/${id}/season/${season}` : `/${type}/${id}`, path === '/ui/title' ? {append_to_response:'credits'} : {})); return true;
+    }
+    if (path === '/ui/upcoming' && req.method === 'GET') {
+      const id = url.searchParams.get('id');
+      if (!/^[1-9]\d*$/.test(id || '')) throw problem(400, 'Invalid show.');
+      json(res, 200, await upcomingForShow(id)); return true;
     }
     if (path === '/ui/live' && req.method === 'GET') { json(res,200,{items:await browserLive()}); return true; }
     if (path === '/ui/live/refresh' && req.method === 'POST') { await refreshLive(); json(res,200,{items:await browserLive()}); return true; }
