@@ -110,7 +110,7 @@ export function createProviderContext({ signal, fetchResource = (...args) => fet
   }
   const text = async (...args) => (await read(...args)).bytes.toString('utf8');
   const json = async (...args) => JSON.parse(await text(...args));
-  async function accept(url, headers, source) {
+  async function accept(url, headers, source, options = {}) {
     headers = mediaHeaders(headers);
     const checkedPlaylists = [];
     const readPlaylist = async requested => {
@@ -168,6 +168,10 @@ export function createProviderContext({ signal, fetchResource = (...args) => fet
       if (!isVideo(bytes) && !audioBytes) throw new Error(`HLS segment is not ${audio ? 'audio' : 'video'} (empty, HTML, or image bait)`);
     }
     await verifyLeaf(playlist, base);
+    if (options.minDuration && playlist.includes('#EXT-X-ENDLIST')) {
+      const duration = [...playlist.matchAll(/^#EXTINF:([\d.]+)/gm)].reduce((sum, match) => sum + Number(match[1]), 0);
+      if (duration > 0 && duration < options.minDuration) throw new Error(`Provider returned only ${Math.round(duration)} seconds of video, likely an error clip`);
+    }
     for (const url of audioPlaylists) {
       let audio = await readPlaylist(url), text = audio.bytes.toString('utf8');
       for (let depth = 0; /#EXT-X-STREAM-INF:/.test(text); depth++) {
@@ -205,7 +209,7 @@ async function atlantic(input, ctx) {
   const errors = {};
   for (const [source, get] of sources) {
     ctx.signal.throwIfAborted();
-    try { const url = await get(); if (!url) throw new Error('No source'); return { ...await ctx.accept(url, h, source), server_errors: errors }; }
+    try { const url = await get(); if (!url) throw new Error('No source'); return { ...await ctx.accept(url, h, source, { minDuration: 180 }), server_errors: errors }; }
     catch (e) { errors[source] = e.message; }
   }
   throw new Error(Object.entries(errors).map(([k, v]) => `${k}: ${v}`).join('; '));

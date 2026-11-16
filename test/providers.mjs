@@ -134,7 +134,7 @@ function mockProvider(provider, kind, { brokenAthena = false, bait = false } = {
       if (url.pathname === '/bait') return new Response('<html>Error</html>');
       if (url.pathname === '/master') return new Response(master);
       if (url.pathname === '/bait-master') return new Response('#EXTM3U\n#EXTINF:6,\nbait.png\n');
-      if (url.pathname === '/leaf.m3u8') return new Response(leaf);
+      if (url.pathname === '/leaf.m3u8') return new Response(provider === 'atlantic' ? leaf.replace('#EXTINF:6,', '#EXTINF:3600,') : leaf);
       if (url.pathname === '/low.m3u8') throw new Error('Wrong rendition selected');
       return new Response(url.pathname === '/bait.png' || bait ? Buffer.from('89504e470d0a1a0a', 'hex') : ts);
     }
@@ -248,6 +248,11 @@ test('HLS validation rejects PNG bait and validates AES-128 encrypted segments',
   assert.equal((await ctx.accept('https://test/master', {}, 'encrypted')).server, 'encrypted');
   const bad = createProviderContext({ signal: AbortSignal.timeout(1000), fetchResource: mockProvider('atlantic', 'movie', { bait: true }).fetchResource });
   await assert.rejects(bad.accept('https://cdn.test/master', {}, 'bad'), /not video/);
+});
+
+test('provider validation can reject a short error clip before playback', async () => {
+  const ctx = createProviderContext({ fetchResource: async url => new Response(url.endsWith('.m3u8') ? leaf.replace('#EXTINF:6,', '#EXTINF:64,') : ts) });
+  await assert.rejects(ctx.accept('https://video.test/episode.m3u8', {}, 'test', { minDuration: 180 }), /only 64 seconds/);
 });
 
 test('source validation checks the selected default audio and initialization before accepting playable video', async () => {
