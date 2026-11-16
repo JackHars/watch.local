@@ -13,6 +13,7 @@ import { libraryRoute, libraryPage, mountLibraryPage } from './library.mjs';
 import { createLiveSearch } from './search-ui.mjs';
 import { upcomingDetails } from './upcoming.mjs';
 import { settingsGroups, settingsNavigation, settingsOverview, mountSettingsNavigation, settingsPatch } from './settings-ui.mjs';
+import { healthCheckMarkup, mountHealthCheck } from './provider-health.mjs';
 // Safari can mark a tapped select as focus-visible. Track how focus was
 // reached without blurring controls, blocking selection, or changing the picker.
 document.addEventListener('pointerdown',event=>{
@@ -29,7 +30,7 @@ const icon = name => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><
 const state = { user:null, profile:null, profiles:[], lanAccess:false, name:'watch.local', route:0, page:1, query:'', settings:null, items:[], drag:null };
 const repairTerminal = createRepairTerminal({ api });
 const updatePrompt = createUpdatePrompt({ api, ready:()=>state.user?.role==='admin'&&Boolean(state.profile)&&!repairTerminal.active, busy:()=>Boolean(document.querySelector('dialog[open]')) });
-let homeCarousel, stopSearch = () => {}, stopLibrary = () => {};
+let homeCarousel, stopSearch = () => {}, stopLibrary = () => {}, stopHealthCheck = () => {};
 function stopHomeCarousel(){homeCarousel?.destroy();homeCarousel=null;}
 const img = (path, size='w780') => path && /^\/[\w.\/-]+$/.test(path) ? `https://image.tmdb.org/t/p/${size}${path}` : '';
 const image = (path, alt='', size='w780', eager=false) => path ? `<img src="${esc(img(path,size))}" alt="${esc(alt)}" loading="${eager?'eager':'lazy'}">` : '';
@@ -107,7 +108,7 @@ function storedList(){return watchlistPreference(state.user.id,state.profile.id,
 function saved(item){return storedList().some(i=>i.id===item.id && i.type===item.type);}
 function saveTitle(){const item=state.detail,list=storedList(),index=list.findIndex(i=>i.id===item.id&&i.type===item.type);if(index>=0)list.splice(index,1);else list.unshift(item);localStorage.setItem(listKey(),JSON.stringify(list.slice(0,100)));const button=$('[data-action=save]');button.innerHTML=icon(index>=0?'plus':'check')+(index>=0?'Add to My List':'In My List');toast(index>=0?'Removed from My List':'Added to My List');}
 function renderLogin(){
-  stopSearch();stopLibrary();stopHomeCarousel();state.route++;state.settings=null;state.profile=null;state.profiles=[];viewPositions.clear();visibleRoute='';
+  stopSearch();stopLibrary();stopHealthCheck();stopHomeCarousel();state.route++;state.settings=null;state.profile=null;state.profiles=[];viewPositions.clear();visibleRoute='';
   $('#app').innerHTML=`<main class="login-page" id="main" tabindex="-1">
     <header class="login-brand"><img class="brand-mark" src="/brand.svg" alt="watch.local" width="422" height="72"></header>
     <div class="login-layout">
@@ -201,7 +202,7 @@ async function route({restoreScroll=true}={}){
   const saved=restoreScroll&&changed&&viewPositions.get(next);
   if(saved&&version===state.route&&state.user&&state.profile){window.scrollTo(0,saved.top);document.querySelectorAll('.rail').forEach(rail=>rail.scrollLeft=saved.rails[rail.closest('section')?.querySelector('h2')?.textContent]||0);}
 }
-async function renderRoute(){stopSearch();stopLibrary();if(!state.user)return renderLogin();if(!state.profile)return profilesPage();const version=++state.route;const [page,sub,id]=(location.hash.slice(1)||'home').split('?')[0].split('/');state.page=1;window.scrollTo(0,0);
+async function renderRoute(){stopSearch();stopLibrary();stopHealthCheck();if(!state.user)return renderLogin();if(!state.profile)return profilesPage();const version=++state.route;const [page,sub,id]=(location.hash.slice(1)||'home').split('?')[0].split('/');state.page=1;window.scrollTo(0,0);
   if(page==='settings'){shell('<div class="page"><div class="empty"><div class="spinner"></div></div></div>');try{await settingsPage(sub||'overview',version);}catch(e){if(version===state.route)shell(`<div class="page">${errorBox(e)}</div>`);}return;}
   if(page==='search'){renderSearch(version);return;}
   shell(`<div class="page"><div class="page-head"><h1>${page==='live'?'Live, right now.':page==='movies'?'Movies':page==='series'?'Series':'Your next watch.'}</h1></div><div class="grid">${Array.from({length:10},()=>'<div class="skeleton poster"></div>').join('')}</div></div>`);
@@ -244,6 +245,11 @@ async function settingsPage(section,version){
   if(section==='overview'){settingsShell(section,settingsHeader('Settings','Make watch.local work for you.')+settingsOverview(state.user.role,icon));return;}
   if(state.user.role==='admin')state.settings=await api('settings');if(version!==state.route)return;
   const data=state.settings,config=data?.config;
+  if(section==='health'){
+    settingsShell(section,settingsHeader('Health check','See which movie and series sources can actually play.')+healthCheckMarkup(data.providers,config.playback.enabled));
+    stopHealthCheck=mountHealthCheck($('.settings-main'),{providers:data.providers,enabled:config.playback.enabled,api,Hls:window.Hls});
+    return;
+  }
   if(section==='updates'){
     settingsShell(section,settingsHeader('Updates','Keep watch.local up to date automatically.')+`<div class="panel panel-pad"><div id="update-status" role="status" aria-live="polite"><p class="muted">Loading update status…</p></div><div class="actions"><button class="btn ghost small" id="check-updates" type="button">${icon('refresh')}Check now</button></div></div><form id="config-form"><div class="panel"><div class="setting-row"><div><strong>Automatic updates</strong><p>Install new versions after GitHub checks pass. Updates briefly restart the server.</p></div>${toggle('Automatic updates',config.updates.enabled,'name="enabled"')}</div><div class="panel-pad">${field('Check every (minutes)','intervalMinutes',config.updates.intervalMinutes,{type:'number',min:5,max:1440,required:true,hint:'Choose 5–1440 minutes. Five minutes is the default.'})}</div></div>${saveBar('Your profiles, watch history, and server settings are preserved.')}</form><details class="panel settings-advanced"><summary>Updater repair<span>Troubleshooting</span></summary><div class="panel-pad"><p class="settings-intro">Install or repair the background update service in a terminal inside your browser.</p><button class="btn ghost small" id="repair-updates" type="button">Repair automatic updates</button></div></details>`);
     $('#repair-updates').onclick=()=>repairTerminal.open();

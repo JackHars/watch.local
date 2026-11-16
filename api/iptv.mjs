@@ -537,7 +537,7 @@ export async function browserPlay(req, res, user, input) {
     const type = input.type === 'tv' ? 'series' : input.type === 'movie' ? 'movie' : null;
     if (!type) throw new HttpError(400, 'Choose a movie, episode, or live event.');
     const controller = new AbortController(); res.once('close', () => controller.abort());
-    const resolved = await resolveStream(input.id, type, input.season, input.episode, null, Boolean(input.fresh), { signal: controller.signal, exclude: input.exclude });
+    const resolved = await resolveStream(input.id, type, input.season, input.episode, null, Boolean(input.fresh), { signal: controller.signal, exclude: input.exclude, provider: input.provider });
     console.info(`Web playback: ${resolved.provider} / ${resolved.server} (${type} ${input.id})`);
     // Use the resolver's validated identity and sign it with the source URL.
     // AVKit follows this link without needing browser cookies or JS <track>s.

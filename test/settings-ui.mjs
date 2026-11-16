@@ -5,19 +5,29 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSettingsStore } from '../api/settings.mjs';
 import { settingsGroups, settingsOverview, settingsNavigation, settingsPatch } from '../public/settings-ui.mjs';
+import { healthCheckMarkup } from '../public/provider-health.mjs';
 
 test('the settings index and navigation expose only the sections a user can access', () => {
   const viewer = settingsGroups('viewer').flatMap(group => group.items.map(item => item.id));
   assert.deepEqual(viewer, ['connections', 'account']);
   const all = settingsGroups('admin').flatMap(group => group.items.map(item => item.id));
   assert.equal(new Set(all).size, all.length);
-  for (const id of ['playback', 'providers', 'live', 'general', 'updates']) assert.ok(all.includes(id));
+  for (const id of ['playback', 'providers', 'health', 'live', 'general', 'updates']) assert.ok(all.includes(id));
   const icon = () => '';
   for (const html of [settingsOverview('viewer', icon), settingsNavigation('account', 'viewer', icon)]) {
-    assert.doesNotMatch(html, /#settings\/(?:providers|users|general|updates)/);
+    assert.doesNotMatch(html, /#settings\/(?:providers|health|users|general|updates)/);
     assert.match(html, /#settings\/connections/);
   }
   assert.match(settingsNavigation('account', 'viewer', icon), /aria-current="page"/);
+});
+
+test('health check shows each provider once and labels disabled sources', () => {
+  const html = healthCheckMarkup([{ id: 'zstream', name: 'Zstream' }, { id: 'vidrift', name: 'Vidrift' }], ['zstream']);
+  assert.equal((html.match(/data-health-provider=/g) || []).length, 2);
+  assert.match(html, /Breaking Bad/);
+  assert.match(html, /Season 1, Episode 1/);
+  assert.match(html, /data-health-provider="zstream" data-state="waiting"/);
+  assert.match(html, /data-health-provider="vidrift" data-state="disabled"/);
 });
 
 test('separate playback, provider, live and network forms preserve unrelated saved preferences', async () => {

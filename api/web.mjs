@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { settingsStore, dataDirectory, publicUser, problem, providerDirectory } from './settings.mjs';
+import { settingsStore, dataDirectory, publicUser, problem, providerDirectory, providerNames } from './settings.mjs';
 import { join } from 'node:path';
 import { createUpdateControl } from './updates.mjs';
 import { createUpdateRepair } from './update-repair.mjs';
@@ -50,6 +50,7 @@ const files = new Map([
   ['/library.mjs', ['../public/library.mjs','text/javascript']],
   ['/upcoming.mjs', ['../public/upcoming.mjs','text/javascript']],
   ['/settings-ui.mjs', ['../public/settings-ui.mjs','text/javascript']],
+  ['/provider-health.mjs', ['../public/provider-health.mjs','text/javascript']],
   ['/search-ui.mjs', ['../public/search-ui.mjs','text/javascript']],
   ['/live.mjs', ['../public/live.mjs','text/javascript']],
   ['/live-model.mjs', ['../public/live-model.mjs','text/javascript']],
@@ -188,6 +189,21 @@ export async function handleWeb(req, res) {
       issueSession(res,changed); json(res,200,{user:publicUser(changed)}); return true;
     }
     requireSession(req,true);
+    if (path === '/ui/health-check/play' && req.method === 'POST') {
+      const input = await body(req);
+      if (!providerNames.includes(input.provider)) throw problem(400, 'Unknown provider.');
+      if (!settingsStore.config().playback.enabled.includes(input.provider)) throw problem(400, 'This provider is disabled.');
+      try {
+        const stream = await browserPlay(req, res, user, { type: 'tv', id: 1396, season: 1, episode: 1, provider: input.provider, fresh: true });
+        json(res, 200, { provider: stream.provider, url: stream.url });
+      } catch (error) {
+        if (res.destroyed) return true;
+        const reason = String(error.provider_errors?.[input.provider] || error.message || 'No playable source')
+          .replace(/https?:\/\/[^\s"']+/g, '[source]').slice(0, 180);
+        json(res, error.status === 504 ? 504 : 502, { error: reason });
+      }
+      return true;
+    }
     if (path === '/ui/updates/repair' && req.method === 'GET') { json(res,200,await repair.availability()); return true; }
     if (path === '/ui/updates/repair' && req.method === 'POST') {
       const input = await body(req);

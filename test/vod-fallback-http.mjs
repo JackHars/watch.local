@@ -39,6 +39,7 @@ test('browser/native episode playback rejects broken audio and accepts excluded-
       assert.equal(stream.provider,episode===3?'vidrift':'zstream');
       if(episode===3)assert.deepEqual(stream.attemptedProviders,['zstream','vidrift']);
     }
+    const pinned=await play({provider:'zstream'});assert.equal(pinned.status,502,'A pinned health check must not silently use a fallback provider');
     brokenAudio=false;
     const native=base+'/ui/playback.m3u8?'+new URLSearchParams({...input,fresh:'1',requestId:'a'.repeat(32)});
     const redirect=await original(native,{redirect:'manual'});assert.equal(redirect.status,302);

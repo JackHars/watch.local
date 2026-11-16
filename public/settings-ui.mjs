@@ -3,6 +3,7 @@ const groups = [
   { label: 'Watching', items: [
     { id: 'playback', icon: 'play', label: 'Playback', description: 'Video quality, source caching, and wait limits.', keywords: 'resolution timeout buffering streams' },
     { id: 'providers', icon: 'layers', label: 'Movie & series providers', description: 'Choose sources and their fallback order.', keywords: 'priority enable disable reorder' },
+    { id: 'health', icon: 'activity', label: 'Health check', description: 'Test every provider with Breaking Bad S1E1.', keywords: 'diagnostics streams playback video providers' },
     { id: 'live', icon: 'tv', label: 'Live TV & sports', description: 'Channel sources and sports fallbacks.', keywords: 'zlive timstreams strmfree broadcasts' },
     { id: 'library', icon: 'film', label: 'IPTV catalog', description: 'Library size, refresh schedule, and indexing.', keywords: 'movies series channels playlist pages' },
     { id: 'metadata', icon: 'info', label: 'Artwork & title info', description: 'Catalog information and your TMDB credential.', keywords: 'metadata api key token upcoming seasons episodes' },

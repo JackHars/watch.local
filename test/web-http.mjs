@@ -44,6 +44,8 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   async function request(path,{cookie,method='GET',body,origin,headers={}}={}){return fetch(base+path,{method,headers:{...headers,...(cookie?{cookie}:{}),...(body?{'content-type':'application/json'}:{}),...(origin?{origin}:{})},body:body?JSON.stringify(body):undefined});}
   const home=await request('/');assert.equal(home.status,200);assert.match(home.headers.get('content-security-policy'),/frame-ancestors 'none'/);assert.match(await home.text(),/app.js/);
   assert.equal((await request('/vendor/hls.js')).status,200);assert.equal((await request('/ui/settings')).status,401);
+  assert.equal((await request('/provider-health.mjs')).status,200);
+  assert.equal((await request('/ui/health-check/play',{method:'POST',body:{provider:'zstream'}})).status,401);
   assert.equal((await request('/watch-progress.mjs')).status,200);
   assert.equal((await request('/mobile-player.mjs')).status,200);
   assert.equal((await request('/profiles.mjs')).status,200);
@@ -161,10 +163,15 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/ui/tmdb',{method:'DELETE',cookie})).status,403);
   assert.equal((await request('/resolve?tmdb=550')).status,401);assert.equal((await request('/resolve?tmdb=550',{cookie})).status,403);assert.equal((await request('/proxy?u=https://fixture.test/master',{cookie})).status,403);assert.equal((await request('/ui/users',{cookie,method:'POST',body:{username:'other',password:'otherpass'}})).status,403);
   assert.equal((await request('/ui/connections?user='+owner.id,{cookie})).status,403);
+  assert.equal((await request('/ui/health-check/play',{cookie,method:'POST',body:{provider:'zstream'}})).status,403);
   r=await request('/ui/connections',{cookie});const links=await r.json();assert.equal(links.username,'viewer');assert.ok(links.playlist.includes('username=viewer'));assert.ok(!links.playlist.includes('password=password123'));
   r=await request('/player_api.php?username=viewer&password=viewerpass');const account=await r.json();assert.equal(account.user_info.username,'viewer');assert.equal(account.user_info.password,'viewerpass');
   r=await request('/player_api.php?username=viewer&password=viewerpass&action=get_vod_info&vod_id=550');assert.match((await r.json()).movie_data.direct_source,/\/movie\/viewer\/viewerpass\/550/);
   r=await request('/ui/settings',{cookie:admin,method:'PUT',body:{playback:{enabled:['zstream'],quality:'adaptive',providerTimeout:10,totalTimeout:20}}});assert.equal(r.status,200);
+  assert.equal((await request('/ui/health-check/play',{cookie:admin,method:'POST',body:{provider:'unknown'}})).status,400);
+  assert.equal((await request('/ui/health-check/play',{cookie:admin,method:'POST',body:{provider:'zstream'},origin:'https://evil.test'})).status,403);
+  assert.equal((await request('/ui/health-check/play',{cookie:admin,method:'POST',body:{provider:'vidrift'}})).status,400);
+  r=await request('/ui/health-check/play',{cookie:admin,method:'POST',body:{provider:'zstream'}});assert.equal(r.status,200);const checked=await r.json();assert.equal(checked.provider,'zstream');assert.match(await fetch(checked.url).then(result=>result.text()),/^#EXTM3U/);
   assert.equal((await request('/ui/play',{cookie,method:'POST',body:{type:'movie',id:550}})).status,400);
   assert.equal((await request('/ui/play',{cookie,method:'POST',body:{type:'movie',id:550,profileId:ownerProfile.id}})).status,404);
   r=await request('/ui/play',{cookie,method:'POST',body:{type:'movie',id:550,profileId:viewerProfile.id}});assert.equal(r.status,200);const play=await r.json();assert.equal(play.provider,'zstream');assert.equal((await fetch(play.url)).status,200);
