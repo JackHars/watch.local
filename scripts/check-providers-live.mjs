@@ -83,7 +83,9 @@ async function checkVod(id) {
         ? { movie: [{ tmdb: 1368337 }], series: [{ tmdb: 84773, season: 1, episode: 1 }] }
         : id === 'rivo'
           ? { movie: [{ tmdb: 1368337 }], series: [{ tmdb: 84773, season: 1, episode: 1 }] }
-          : ['corsflix', 'meowtv', 'flickystream', 'dulo'].includes(id) ? {
+          : id === 'greybox'
+            ? { movie: [{ tmdb: 1368337 }], series: [{ tmdb: 1400, season: 1, episode: 2 }] }
+            : ['corsflix', 'meowtv', 'flickystream', 'dulo'].includes(id) ? {
     movie: [{ tmdb: 27205 }, ...defaultSamples.movie],
     series: id === 'corsflix'
       ? [{ tmdb: 1396, season: 1, episode: 1 }, ...defaultSamples.series]

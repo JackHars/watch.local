@@ -309,6 +309,19 @@
       ]
     },
     {
+      "id": "greybox",
+      "name": "GreyBox",
+      "kind": "vod",
+      "origins": [
+        "https://greyboxtv.duckdns.org",
+        "https://vidoraplayer.duckdns.org"
+      ],
+      "implementation": [
+        "api/greybox.mjs",
+        "api/providers.mjs"
+      ]
+    },
+    {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",
