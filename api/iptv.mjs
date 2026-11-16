@@ -295,15 +295,17 @@ async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders, l
     }
     if (!response.ok) { await response.body?.cancel(); throw new HttpError(502, `Video host returned HTTP ${response.status}.`); }
     const type = response.headers.get('content-type') || 'application/octet-stream';
-    if (type.includes('text/html')) { await response.body?.cancel(); throw new HttpError(502, 'The video host returned an error page.'); }
     if (req.method === 'HEAD' && !decorate) {
-      const result = { 'Content-Type': /mpegurl/i.test(type) || /\.m3u8(?:\?|$)/i.test(upstream) ? 'application/vnd.apple.mpegurl' : type, 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' };
+      const result = { 'Content-Type': /mpegurl/i.test(type) || /\.m3u8(?:\?|$)/i.test(upstream) ? 'application/vnd.apple.mpegurl' : /\/segment\.ts(?:\?|$)/i.test(req.url) ? 'video/mp2t' : type, 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' };
       res.writeHead(response.status, result); return res.end();
     }
     reader = response.body.getReader();
     const first = await reader.read();
     const prefix = first.value ? new TextDecoder().decode(first.value.subarray(0, 128)).trimStart() : '';
-    const isPlaylist = prefix.startsWith('#EXTM3U') || /mpegurl/i.test(type);
+    const isPlaylist = prefix.startsWith('#EXTM3U');
+    if (/mpegurl/i.test(type) && !isPlaylist) throw new HttpError(502, 'The video host returned an invalid playlist.');
+    const looksLikeMedia = first.value?.[0] === 0x47 || first.value && /^(ftyp|styp|moof|moov)$/.test(Buffer.from(first.value.subarray(4, 8)).toString());
+    if (/text\/html/i.test(type) && !isPlaylist && !looksLikeMedia) throw new HttpError(502, 'The video host returned an error page.');
     if (isPlaylist) {
       const chunks = first.done ? [] : [first.value]; let length = first.value?.length || 0;
       while (!first.done) {

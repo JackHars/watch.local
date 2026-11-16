@@ -35,7 +35,8 @@ test('movie playback and legacy API relay keep provider headers and reuse valida
     if (req.url === '/hls/key') return res.end(Buffer.alloc(16, 7));
     if (req.url === '/hls/init') return res.end(Buffer.from('000000186674797069736f36', 'hex'));
     if (req.url === '/hls/seg') {
-      if (req.headers.range) { res.writeHead(206, { 'Content-Range': 'bytes 0-31/752' }); return res.end(video.subarray(0, 32)); }
+      if (req.headers.range) { res.writeHead(206, { 'Content-Range': 'bytes 0-31/752', 'Content-Type': 'text/html' }); return res.end(video.subarray(0, 32)); }
+      res.setHeader('Content-Type', 'text/html'); // The CDN labels real MPEG-TS as HTML.
       return res.end(req.method === 'HEAD' ? undefined : video);
     }
     res.writeHead(404); res.end('Unexpected fixture path');
@@ -73,7 +74,7 @@ test('movie playback and legacy API relay keep provider headers and reuse valida
     const media = await fetch(mediaURL).then(r => r.text());
     const initURL = media.match(/URI="([^"]+)"/)[1]; assert.equal((await fetch(initURL)).status, 200);
     const segmentURL = media.split('\n').find(l => l.startsWith('http'));
-    const segment = await fetch(segmentURL, { headers: { Range: 'bytes=0-31' } }); assert.equal(segment.status, 206); assert.equal((await segment.arrayBuffer()).byteLength, 32);
+    const segment = await fetch(segmentURL, { headers: { Range: 'bytes=0-31' } }); assert.equal(segment.status, 206); assert.equal(segment.headers.get('content-type'), 'video/mp2t'); assert.equal((await segment.arrayBuffer()).byteLength, 32);
     assert.equal((await fetch(segmentURL, { method: 'HEAD' })).status, 200);
     for (const [, uri] of master.matchAll(/URI="([^"]+)"/g)) assert.equal((await fetch(uri)).status, 200);
     const resolved = await fetch(base + '/resolve', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tmdb: 550, kind: 'movie', provider: 'zstream' }) }).then(r => r.json());
