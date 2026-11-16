@@ -21,6 +21,28 @@ import { createBingrResolver } from './bingr.mjs';
 
 export const PROVIDERS = Object.freeze(['cinejoy', 'atlantic', 'tvids', 'zstream', 'vidrift', 'vidsrc', 'reelix', 'movy', 'rive', 'corsflix', 'meowtv', 'flickystream', 'dulo', 'arrowtv', 'ghostflix', 'bingebang', 'moviebite', 'moonflix', 'cinema', 'zenox', 'bingr']);
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+const validatedPlaylists = new Map();
+const PLAYLIST_HANDOFF_MS = 90000;
+export function validatedPlaylist(url, headers) {
+  const key = JSON.stringify([url, mediaHeaders(headers)]);
+  const entry = validatedPlaylists.get(key);
+  if (!entry) return null;
+  if (entry.expires <= Date.now()) { validatedPlaylists.delete(key); return null; }
+  return entry.text;
+}
+function rememberPlaylists(playlists, headers) {
+  const expires = Date.now() + PLAYLIST_HANDOFF_MS;
+  for (const { requested, resolved, text } of playlists) {
+    if (text.length > 512 * 1024) continue;
+    for (const url of new Set([requested, resolved])) {
+      const key = JSON.stringify([url, headers]);
+      validatedPlaylists.delete(key);
+      validatedPlaylists.set(key, { text, expires });
+    }
+  }
+  for (const [key, entry] of validatedPlaylists) if (entry.expires <= Date.now()) validatedPlaylists.delete(key);
+  while (validatedPlaylists.size > 64) validatedPlaylists.delete(validatedPlaylists.keys().next().value);
+}
 const headersFor = site => ({ 'user-agent': UA, origin: new URL(site).origin, referer: site.endsWith('/') ? site : site + '/' });
 export function mediaHeaders(headers = {}) {
   return Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), String(v)])
@@ -90,7 +112,14 @@ export function createProviderContext({ signal, fetchResource = (...args) => fet
   const json = async (...args) => JSON.parse(await text(...args));
   async function accept(url, headers, source) {
     headers = mediaHeaders(headers);
-    const root = await read(url, headers);
+    const checkedPlaylists = [];
+    const readPlaylist = async requested => {
+      const response = await read(requested, headers);
+      const text = response.bytes.toString('utf8');
+      if (text.trimStart().startsWith('#EXTM3U')) checkedPlaylists.push({ requested, resolved: response.url, text });
+      return response;
+    };
+    const root = await readPlaylist(url);
     let playlist = root.bytes.toString('utf8'), base = root.url;
     if (!playlist.trimStart().startsWith('#EXTM3U')) throw new Error('Source did not return HLS');
     const variants = variantsOf(playlist, base), audioPlaylists = new Set();
@@ -107,7 +136,7 @@ export function createProviderContext({ signal, fetchResource = (...args) => fet
       }
       const best = variantsOf(selected, base)[0];
       if (!best) throw new Error('HLS master has no variant');
-      const next = await read(best.media, headers);
+      const next = await readPlaylist(best.media);
       base = next.url; playlist = next.bytes.toString('utf8');
       if (!playlist.trimStart().startsWith('#EXTM3U')) throw new Error('Invalid HLS variant');
     }
@@ -140,16 +169,19 @@ export function createProviderContext({ signal, fetchResource = (...args) => fet
     }
     await verifyLeaf(playlist, base);
     for (const url of audioPlaylists) {
-      let audio = await read(url, headers), text = audio.bytes.toString('utf8');
+      let audio = await readPlaylist(url), text = audio.bytes.toString('utf8');
       for (let depth = 0; /#EXT-X-STREAM-INF:/.test(text); depth++) {
         if (depth >= 3) throw new Error('Too many nested audio playlists');
         const variant = variantsOf(text, audio.url)[0];
         if (!variant) throw new Error('HLS audio master has no variant');
-        audio = await read(variant.media, headers); text = audio.bytes.toString('utf8');
+        audio = await readPlaylist(variant.media); text = audio.bytes.toString('utf8');
       }
       if (!text.trimStart().startsWith('#EXTM3U')) throw new Error('HLS audio playlist is unavailable');
       await verifyLeaf(text, audio.url, true);
     }
+    // Some providers issue one-use playlist URLs. Relay the bytes just verified
+    // instead of immediately spending the same URL a second time in the player.
+    rememberPlaylists(checkedPlaylists, headers);
     return { master: root.url, headers, server: source, variants, streams: [{ type: 'hls', id: source, playlist: root.url, headers }] };
   }
   return { read, text, json, accept, signal };
@@ -321,7 +353,7 @@ async function vidsrc(input, ctx, getCatalogData) {
 
 export function createProviderResolver({ cinejoy, getCatalogData, fetchResource, getPolicy, providerTimeoutMs = 30000, totalTimeoutMs = 180000, cacheTtlMs = 300000 }) {
   const cache = new Map();
-  const adapters = { cinejoy, atlantic, tvids, zstream, vidrift, vidsrc: (input, ctx) => vidsrc(input, ctx, getCatalogData), reelix: createReelixResolver(), movy: createMovyResolver(), rive: createRiveResolver(), corsflix: createCorsflixResolver(), meowtv: createMeowtvResolver(), flickystream: createFlickystreamResolver(), dulo: createDuloResolver(), arrowtv: createArrowtvResolver(), ghostflix: createGhostflixResolver(), bingebang: createBingebangResolver(), moviebite: createMoviebiteResolver(), moonflix: createMoonflixResolver(), cinema: createCinemaResolver(), zenox: createZenoxResolver(), bingr: createBingrResolver() };
+  const adapters = { cinejoy, atlantic, tvids, zstream, vidrift, vidsrc: (input, ctx) => vidsrc(input, ctx, getCatalogData), reelix: createReelixResolver(), movy: createMovyResolver(), rive: createRiveResolver(), corsflix: createCorsflixResolver(), meowtv: createMeowtvResolver(), flickystream: createFlickystreamResolver(), dulo: createDuloResolver(), arrowtv: createArrowtvResolver(), ghostflix: createGhostflixResolver(), bingebang: createBingebangResolver(getCatalogData), moviebite: createMoviebiteResolver(), moonflix: createMoonflixResolver(), cinema: createCinemaResolver(), zenox: createZenoxResolver(), bingr: createBingrResolver() };
   return async function resolve(input) {
     input = { season: null, episode: null, ...input, kind: input.kind === 'tv' ? 'series' : input.kind };
     input.signal?.throwIfAborted();

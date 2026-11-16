@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSettingsStore } from '../api/settings.mjs';
 import { settingsGroups, settingsOverview, settingsNavigation, settingsPatch } from '../public/settings-ui.mjs';
-import { healthCheckMarkup } from '../public/provider-health.mjs';
+import { healthCheckMarkup, healthFailureState } from '../public/provider-health.mjs';
 
 test('the settings index and navigation expose only the sections a user can access', () => {
   const viewer = settingsGroups('viewer').flatMap(group => group.items.map(item => item.id));
@@ -29,6 +29,12 @@ test('health check shows each provider once and labels disabled sources', () => 
   assert.match(html, /Play all previews/);
   assert.match(html, /data-health-provider="zstream" data-state="waiting"/);
   assert.match(html, /data-health-provider="vidrift" data-state="disabled"/);
+});
+
+test('health check separates missing sources from browser playback failures', () => {
+  assert.equal(healthFailureState(false, Error('HTTP 404')), 'failed');
+  assert.equal(healthFailureState(true, Error('Video timed out')), 'preview-failed');
+  assert.equal(healthFailureState(true, Object.assign(Error('incompatible'), { healthCode: 'unsupported' })), 'unsupported');
 });
 
 test('separate playback, provider, live and network forms preserve unrelated saved preferences', async () => {

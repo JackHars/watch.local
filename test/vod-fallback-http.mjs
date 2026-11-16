@@ -12,7 +12,7 @@ test('browser/native episode playback rejects broken audio and accepts excluded-
   const {initializeIPTV}=await import('../api/iptv.mjs');
   const {createServer}=await import('../server.mjs');
   const original=globalThis.fetch;let server,brokenAudio=true,zstreamCalls=0,backupCalls=0;
-  const video=Buffer.alloc(752,0x47),leaf='#EXTM3U\n#EXTINF:6,\nsegment.ts\n#EXT-X-ENDLIST\n';
+  const video=Buffer.alloc(752,0x47),leaf='#EXTM3U\n#EXTINF:6,\nsegment.ts\n#EXT-X-ENDLIST\n',audioLeaf='#EXTM3U\n#EXTINF:6,\naudio.ts\n#EXT-X-ENDLIST\n';
   try{
     globalThis.fetch=async(url,options)=>{
       const u=new URL(url);if(u.hostname==='127.0.0.1')return original(url,options);
@@ -21,7 +21,8 @@ test('browser/native episode playback rejects broken audio and accepts excluded-
       if(u.hostname==='embed.vidrift.net')return Response.json({meta:{bigbangUrl:'https://backup.test/master.m3u8'}});
       if(u.hostname==='primary.test'){
         if(u.pathname.endsWith('master.m3u8'))return new Response('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",DEFAULT=YES,NAME="English",URI="audio.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=8000000,AUDIO="a"\nvideo.m3u8\n');
-        if(u.pathname.endsWith('audio.m3u8')&&u.pathname.startsWith('/3/')&&brokenAudio)return new Response('Missing episode audio',{status:404});
+        if(u.pathname.endsWith('audio.ts')&&u.pathname.startsWith('/3/')&&brokenAudio)return new Response('Missing episode audio',{status:404});
+        if(u.pathname.endsWith('audio.m3u8'))return new Response(audioLeaf);
         if(u.pathname.endsWith('.m3u8'))return new Response(leaf);
         return new Response(video);
       }
@@ -47,7 +48,8 @@ test('browser/native episode playback rejects broken audio and accepts excluded-
     assert.equal(info.provider,'zstream');assert.deepEqual(info.attemptedProviders,['zstream']);assert.equal(zstreamCalls,before,'Native error inspection must reuse this tap’s selected source');
     brokenAudio=true;
     const root=await fetch(redirect.headers.get('location')).then(r=>r.text());const audio=root.match(/#EXT-X-MEDIA:TYPE=AUDIO[^\n]*URI="([^"]+)"/)[1];
-    assert.equal((await fetch(audio)).status,502,'The audio can fail after resolution');
+    const audioPlaylist=await fetch(audio).then(r=>r.text());const audioSegment=audioPlaylist.split('\n').find(line=>line.startsWith('http'));
+    assert.equal((await fetch(audioSegment)).status,502,'The audio segment can fail after resolution');
     const recovered=await play({exclude:info.attemptedProviders});assert.equal(recovered.status,200);const stream=await recovered.json();
     assert.equal(stream.provider,'vidrift');assert.equal(zstreamCalls,before,'Recovery must not reselect a source the player already rejected');
     assert.match(await fetch(stream.url).then(r=>r.text()),/^#EXTM3U/);

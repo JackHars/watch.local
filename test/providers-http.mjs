@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // Network fixtures exercise the real HTTP routes, resolver, signed relay and player headers.
-test('movie playback and legacy API relay keep provider headers on nested HLS, audio, keys, maps and byte ranges', async () => {
+test('movie playback and legacy API relay keep provider headers and reuse validated HLS playlists', async () => {
   const fetchOriginal = globalThis.fetch;
   const directory = await mkdtemp(join(tmpdir(), 'watchlocal-providers-'));
   process.env.WATCHLOCAL_DATA_DIR = directory;
@@ -16,7 +16,7 @@ test('movie playback and legacy API relay keep provider headers on nested HLS, a
   const { settingsStore } = await import('../api/settings.mjs');
   const required = { origin: 'https://provider.test', referer: 'https://provider.test/player' };
   const observed = [];
-  let unstableReads = 0, cinejoyRequests = 0;
+  let unstableReads = 0;
   const video = Buffer.alloc(188 * 4, 0x47);
   const upstream = http.createServer((req, res) => {
     observed.push(req.url);
@@ -51,7 +51,7 @@ test('movie playback and legacy API relay keep provider headers on nested HLS, a
         const body = JSON.parse(options.body);
         return new Response(JSON.stringify({ streams: [{ type: 'hls', id: 'fixture', playlist: remote + (body.tmdb_id === '551' ? '/hls/unstable' : '/redirect'), headers: required }] }));
       }
-      if (u.hostname === 'api.wing.st') { cinejoyRequests++; return new Response('unavailable', { status: 404 }); }
+      if (u.hostname === 'api.wing.st') return new Response('unavailable', { status: 404 });
       if (u.hostname === '7movies.ac') return new Response('{"token":"fixture"}');
       if (u.hostname === 'embed.vidrift.net') return new Response(JSON.stringify({ meta: { bigbangUrl: remote + '/hls/master' } }));
       if (u.hostname === 'subs.wing.st') return new Response('{"subtitles":[]}');
@@ -84,11 +84,9 @@ test('movie playback and legacy API relay keep provider headers on nested HLS, a
       assert.ok(nested); assert.equal((await fetch(base + nested)).status, 200);
     }
     assert.ok(observed.includes('/hls/seg')); assert.ok(observed.includes('/hls/key')); assert.ok(observed.includes('/hls/audio'));
-    const beforeRetry = cinejoyRequests;
     const retry = await fetch(base + `/movie/${encodeURIComponent(login.username)}/${encodeURIComponent(login.password)}/551.m3u8`);
     assert.equal(retry.status, 200); assert.match(await retry.text(), /1920x1080/);
-    assert.equal(unstableReads, 2, 'failed source should not be selected twice');
-    assert.equal(cinejoyRequests - beforeRetry, 8, 'fresh fallback retries the earlier unavailable Cinejoy mirrors');
+    assert.equal(unstableReads, 1, 'the relay must use the validated one-use playlist instead of fetching it again');
   } finally {
     globalThis.fetch = fetchOriginal;
     server?.closeAllConnections(); if (server) await new Promise(resolve => server.close(resolve));

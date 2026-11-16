@@ -11,6 +11,7 @@ import { collectCatalog, catalogPageLimit, MAX_CATALOG_PAGES } from './catalog.m
 import { metadataService } from './metadata.mjs';
 import { createSubtitleService, attachSubtitles, subtitlePlaylist, subtitleSegment } from './subtitles.mjs';
 import { highestQualityPlaylist } from './hls-quality.mjs';
+import { validatedPlaylist } from './providers.mjs';
 import { createLiveProvider } from './live.mjs';
 import { createZliveRelay } from './zlive-media.mjs';
 import { sportsMediaURL } from './sports-playback.mjs';
@@ -273,8 +274,20 @@ async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders, l
     if (resource) { upstream = resource.url; resolvedLive = resource.playback || live; }
     const headers = { ...upstreamHeaders, ...resource?.headers };
     const manifestHeaders = { ...headers };
+    const sendPlaylist = async (raw, sourceURL) => {
+      const original = settings.config.playback.quality === 'adaptive' ? raw : highestQualityPlaylist(raw);
+      const changedSource = resolvedLive?.provider !== live?.provider || resolvedLive?.memberId !== live?.memberId || resolvedLive?.sportsSource !== live?.sportsSource;
+      const relayLive = changedSource ? resolvedLive : live;
+      let playlist = rewriteHLS(original, sourceURL, base, manifestHeaders, relayLive, resource?.playback);
+      if (decorate) playlist = await decorate(playlist, original, sourceURL);
+      return reply(req, res, 200, playlist, 'application/vnd.apple.mpegurl');
+    };
     if (live?.provider === 'zlive' && /\/segment\.[a-z0-9]+$/i.test(req.url.split('?')[0])) return await zliveRelay(req, res, upstream, headers);
     for (const name of ['range', 'if-range']) if (req.headers[name]) headers[name] = req.headers[name];
+    if (!live && req.method === 'GET' && !req.headers.range) {
+      const checked = validatedPlaylist(upstream, manifestHeaders);
+      if (checked) return sendPlaylist(checked, upstream);
+    }
     const response = await fetchUpstream(upstream, 120000, { method: req.method === 'HEAD' && !decorate ? 'HEAD' : 'GET', headers, signal: controller.signal });
     if (response.status === 416) {
       await response.body?.cancel();
@@ -301,13 +314,8 @@ async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders, l
       // Apply to root and nested IPTV masters so automatic bitrate switching
       // cannot silently select a lower rendition. Media playlists are unchanged.
       const rawPlaylist = Buffer.concat(chunks).toString('utf8');
-      const original = settings.config.playback.quality === 'adaptive' ? rawPlaylist : highestQualityPlaylist(rawPlaylist);
       const sourceURL = response.url || upstream;
-      const changedSource = resolvedLive?.provider !== live?.provider || resolvedLive?.memberId !== live?.memberId || resolvedLive?.sportsSource !== live?.sportsSource;
-      const relayLive = changedSource ? resolvedLive : live;
-      let playlist = rewriteHLS(original, sourceURL, base, manifestHeaders, relayLive, resource?.playback);
-      if (decorate) playlist = await decorate(playlist, original, sourceURL);
-      return reply(req, res, 200, playlist, 'application/vnd.apple.mpegurl');
+      return sendPlaylist(rawPlaylist, sourceURL);
     }
     const mediaType = first.value?.[0] === 0x47 ? 'video/mp2t'
       : first.value && /^(ftyp|styp|moof|moov)$/.test(Buffer.from(first.value.subarray(4, 8)).toString()) ? 'video/mp4' : type;

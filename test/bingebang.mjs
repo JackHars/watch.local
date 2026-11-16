@@ -184,6 +184,14 @@ test('BingeBang series: catalog title -> search candidates -> identity gate on s
   assert.ok(!fixture.calls.some(c => c.headers['x-bb-ticket'] === T_A), 'a mismatched candidate ticket is never spent');
 });
 
+test('BingeBang series is wired to the shared catalog in the integrated resolver', async () => {
+  const fixture = bingebangFetch();
+  const resolve = createProviderResolver({ ...fixture, getCatalogData: catalogStub, cinejoy: cinejoyStub(), getPolicy: policy(['bingebang']) });
+  const result = await resolve({ tmdb: 550, kind: 'series', season: 1, episode: 1, provider: 'bingebang' });
+  assert.equal(result.provider, 'bingebang');
+  assert.match(result.master, /signedtop-1/);
+});
+
 test('BingeBang series: every candidate identity-mismatched rejects without spending any ticket', async () => {
   const fake = { ticket: T_B, mediaType: 'episode', mediaId: 311, imdb: 'tt0000002', segmentsTmdb: 777, season: 1, episode: 1, title: 'Fixture Show (Clone)', sourcesUrl: '/api/player/sources' };
   const fixture = bingebangFetch({ tvPages: { '/tv/play/fx-a/1/1': fake, '/tv/play/fx-b/1/1': { ...fake, segmentsTmdb: 888 } } });
