@@ -65,6 +65,16 @@ Pitfall: binary magic-byte checks (WASM `\0asm`, MP4 `ftyp`, PNG) — `TypedArra
 
 Pitfall: never embed a literal redaction or signature value containing regex metacharacters (e.g. `***`, `[REDACTED]`) in `new RegExp` or `assert.match` — a `*` after a `*` throws "Nothing to repeat" at module load, so the whole test file dies before any test runs and the failure reads as a confusing zero-results error. Assert literal values with `String.prototype.includes`/`startsWith`; keep regexes for the genuinely variable segments.
 
+Pitfall: in fixture HLS playlists, write `#EXT-X-MAP:URI="..."` and `#EXT-X-KEY:...URI="..."` **quoted** — `accept()`'s `verifyLeaf` only matches quoted URIs. Unquoted URIs are silently ignored (no init fetch; AES variants fail `Missing HLS key`).
+
+Pitfall: `accept()` fetch order for an encrypted variant is **segment first, then key** (the key line is checked after the segment read); a MAP init is fetched before the segment. Order media-call assertions accordingly: master → variant → [init] → segment → [key].
+
+Pitfall: in this environment the transport redacts any `u=<value>` token pattern in file content both ways, so the `patch` tool no-ops or fails on such lines (`old_string`/`new_string` collide). Edit those lines on-machine with `execute_code`: read the file, build replacements from string concatenation (`String.fromCharCode(96)` for backticks; no regex — patterns containing `u=${` get mangled in transit), replace by anchor or line index, write back, and verify with a charCode/byte dump. Dump lines before assuming what is on disk — redaction changes how text displays, not how it is stored.
+
+Pitfall: `${a-${b}}` inside a template literal parses as arithmetic (`a` minus `b` minus …) and throws `ReferenceError: a is not defined` at runtime — use `${'a-' + b}` concatenation for a literal prefix plus a variable.
+
+Pitfall: background terminal processes can start in `/` (no workdir). Every `terminal(background=true)` call in this checkout needs an explicit `workdir`, or node scripts die with `MODULE_NOT_FOUND`.
+
 For a simple JSON-to-HLS VOD source, adapt [the executable adapter example](assets/vod-adapter.mjs). It deliberately injects `loadSources`: implement that function from the verified API contract. The example contains **no real endpoint or credentials**. Channel and sports references contain their own contract examples; do not use the VOD return shape for live sources.
 
 ## Invariants to preserve
