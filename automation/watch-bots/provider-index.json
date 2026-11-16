@@ -118,6 +118,13 @@
       "implementation": ["api/bingebang.mjs", "api/bb-crypto.mjs", "api/providers.mjs"]
     },
     {
+      "id": "moviebite",
+      "name": "MovieBite",
+      "kind": "vod",
+      "origins": ["https://moviebite.org", "https://img1.hscow.com", "https://img1.hsxcon.com", "https://willowmovies.com"],
+      "implementation": ["api/moviebite.mjs", "api/providers.mjs"]
+    },
+    {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",

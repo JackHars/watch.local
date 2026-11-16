@@ -71,6 +71,8 @@ async function checkVod(id) {
       ? { movie: [{ tmdb: 1003596 }], series: [{ tmdb: 84773, season: 1, episode: 1 }] }
       : id === 'bingebang'
       ? { movie: [{ tmdb: 77602 }], series: [{ tmdb: 84773, season: 1, episode: 1 }] }
+      : id === 'moviebite'
+      ? { movie: [{ tmdb: 1368337 }], series: [{ tmdb: 84773, season: 1, episode: 1 }] }
       : ['corsflix', 'meowtv', 'flickystream', 'dulo'].includes(id) ? {
     movie: [{ tmdb: 27205 }, ...defaultSamples.movie],
     series: id === 'corsflix'

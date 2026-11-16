@@ -103,6 +103,16 @@ function mockProvider(provider, kind, { brokenAthena = false, bait = false } = {
       if (kind === 'series') { assert.equal(url.searchParams.get('season'), '1'); assert.equal(url.searchParams.get('episode'), '2'); }
       return json({ data: { sources: [{ quality: '1080p', url: 'https://cdn.test/master' }] } });
     }
+    if (url.hostname === 'moviebite.org' && url.pathname === '/api/watch') {
+      assert.equal(url.searchParams.get('id'), '550');
+      assert.equal(url.searchParams.get('tmdbId'), '550');
+      assert.equal(url.searchParams.get('type'), kind === 'series' ? 'tv' : 'movie');
+      assert.equal(url.searchParams.get('sv'), '19');
+      if (kind === 'series') { assert.equal(url.searchParams.get('season'), '1'); assert.equal(url.searchParams.get('episode'), '2'); }
+      assert.equal(options.headers['x-moviebite-client'], '1');
+      assert.equal(options.headers.referer, `https://moviebite.org/watch/${kind === 'series' ? 'tv' : 'movie'}/550`);
+      return json({ success: true, results: { media: { tmdbId: 550, mediaType: kind === 'series' ? 'tv' : 'movie', ...(kind === 'series' ? { season: 1, episode: 2 } : {}) }, streams: [{ name: 'Titan', provider: 'titan', quality: '1080p', format: 'hls', bestWorking: true, url: 'https://cdn.test/master' }] } });
+    }
     if (url.hostname === 'cdn.test') {
       if (url.pathname === '/generate.php') return new Response('"host+token"');
       if (provider === 'zstream') assert.equal(options.headers.referer, 'https://required.test/');
@@ -110,6 +120,7 @@ function mockProvider(provider, kind, { brokenAthena = false, bait = false } = {
       if (provider === 'corsflix' && url.pathname === '/master') assert.equal(options.headers.referer, 'https://vidrift.example.net/');
       if (provider === 'tvids') assert.equal(options.headers.origin, 'https://play.xpass.top');
       if (provider === 'vidsrc' && url.pathname === '/master') { assert.equal(url.searchParams.get('token'), 'host+token'); assert.equal(url.searchParams.get('other'), '1'); }
+      if (provider === 'moviebite' && url.pathname === '/master') assert.equal(options.headers.referer, 'https://moviebite.org/');
       if (provider === 'dulo' && url.pathname === '/master') assert.equal(options.headers.referer, 'https://dulo.mov/');
       if (provider === 'arrowtv' && url.pathname === '/master') assert.equal(options.headers.referer, 'https://player.cinezo.live/');
       if (provider === 'ghostflix' && url.pathname === '/master') assert.equal(options.headers.referer, undefined);
