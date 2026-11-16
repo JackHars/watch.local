@@ -137,17 +137,18 @@ export function createUpdateRepair(directory, { target = nativeRepairTarget, ter
       return status;
     },
     async password(id, token, input, user) {
+      const password = input?.password;
+      if (typeof password === 'string') input.password = ''; // Clear before any async work, including rejected or concurrent attempts.
       const job = await authorize(id, token);
       if (job.userId !== user.id) throw fail(403, 'Open your own repair session.');
-      if (typeof input.password !== 'string' || !input.password || Buffer.byteLength(input.password) > 512 || /[\x00-\x1f\x7f]/.test(input.password) || !Number.isInteger(input.prompt)) throw fail(400, 'Enter a valid sudo password.');
+      if (typeof password !== 'string' || !password || Buffer.byteLength(password) > 512 || /[\x00-\x1f\x7f]/.test(password) || !Number.isInteger(input.prompt)) throw fail(400, 'Enter a valid sudo password.');
       const session = sessions.get(id);
       if (!session) throw fail(409, 'The password prompt is no longer active.');
       const operation = session.queue.then(async () => {
         if (!session.waiting || session.prompts !== input.prompt || (await statusFile(id)).state !== 'authenticating') throw fail(409, 'The password prompt is no longer active.');
         session.waiting = false;
         await setAuthStatus(id, { waitingForPassword: false, message: 'Authenticating with sudo…' });
-        session.child.stdin.write(input.password + '\n');
-        input.password = ''; // Never save, log, return, or retry password input.
+        session.child.stdin.write(password + '\n');
         return { accepted: true };
       });
       session.queue = operation.catch(() => {});

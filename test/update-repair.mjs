@@ -39,8 +39,9 @@ test('repair sends one password per sudo prompt, rejects control input and never
   await assert.rejects(f.repair.password(session.id, session.token, { password: 'escape\u0003', prompt: 1 }, f.user), { status: 400 });
   await assert.rejects(f.repair.password(session.id, session.token, { password: 'line\nbreak', prompt: 1 }, f.user), { status: 400 });
   const input = { password: 'fixture-password-with-$;quotes', prompt: 1 };
-  const attempts = await Promise.allSettled([f.repair.password(session.id, session.token, input, f.user), f.repair.password(session.id, session.token, { ...input }, f.user)]);
-  assert.equal(attempts.filter(result => result.status === 'fulfilled').length, 1); assert.equal(input.password, '');
+  const duplicate = { ...input };
+  const attempts = await Promise.allSettled([f.repair.password(session.id, session.token, input, f.user), f.repair.password(session.id, session.token, duplicate, f.user)]);
+  assert.equal(attempts.filter(result => result.status === 'fulfilled').length, 1); assert.equal(input.password, ''); assert.equal(duplicate.password, '');
   assert.deepEqual(f.passwords, ['fixture-password-with-$;quotes\n']);
   await assert.rejects(f.repair.password(session.id, session.token, { password: 'duplicate', prompt: 1 }, f.user), { status: 409 });
   child.stderr.write('Sorry, try again.\nwatchlocal-sudo-password:'); await settle();
