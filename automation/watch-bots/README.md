@@ -1,49 +1,27 @@
-# Watch provider bots
+# Watch provider research
 
-Two local Hermes profiles share a `watch-local` Kanban board:
+Watch Providers and Watch Integrator are separate Hermes bots. Each runs in its own Docker container with no host home directory or personal credentials mounted. Their only shared data is a Kanban board and the research artifacts; the integrator sees the artifacts read-only. Both checkouts have disabled push remotes. There are **no scheduled jobs**.
 
-- **Watch Providers** refreshes [FMHY's video page](https://fmhy.net/video), walks its streaming and live TV/sports links in page order, and researches one site per scheduled run. The queue includes alternatives with distinct names and hosts, but excludes mirrors, status links, IPTV tools, players, and download-only sections. It keeps progress in `/home/jack/watch-bots/state/fmhy-queue.json`.
-- **Watch Integrator** receives a Kanban card only after Watch Providers supplies a raw media proof and a local API/adapter file. New cards wait for its visible Bot Chat, where it independently verifies the provider, follows `skills/watchlocal-provider-integration/SKILL.md`, posts progress notes, commits a successful integration, and pushes to the watch.local GitHub repo.
+Say **`begin`** in the Watch Providers chat to investigate exactly one site from the [FMHY video list](https://fmhy.net/video). The queue preserves completed and blocked work. The bot verifies actual media bytes before writing an adapter and handing off a verified candidate. A readable catalog, player page, or manifest alone is insufficient.
 
-## Researched-site index
+If a verified handoff is waiting, say **`begin`** in the Watch Integrator chat. It rechecks the exact media, updates watch.local, runs the validation checks, and commits locally. It leaves the Kanban card blocked until you review and push the change yourself. It never asks for a GitHub credential.
 
-`provider-index.json` is the versioned inventory of sites already integrated into watch.local. Its origins are exact host matches, and each entry points to the implementation files. An entry means the source has been reverse engineered and integrated in code; it does not promise that the external site is currently online. When Watch Integrator adds a provider or a new site in an existing provider network, it updates this file in the same commit.
+The sandbox dashboards are available only on the host at `http://127.0.0.1:9121` (research) and `http://127.0.0.1:9122` (integration). Both require login. The containers reach public HTTP(S) through a proxy that denies private network destinations; only the authenticated local model bridge is reachable on the host. Docker volumes hold the queue, repos, artifacts, and bot profiles. They are not host directory mounts.
 
-The research queue also records completed investigations (`verified`, `unavailable`, `blocked`, or `skipped`). The `index` command combines those outcomes with the versioned inventory. Watch Providers checks it before investigating a site, and the queue automatically skips integrated hosts before claiming a candidate:
+## Research index and evidence
 
-Multiple adapters may name the same shared embed/API host. Queue lookup keeps the first code-backed match for skip decisions; the full index still lists both providers. A shared host must not halt the hourly research turn.
+`provider-index.json` records code-backed site origins and implementation paths. A listed source may still go offline. The queue at `/home/jack/watch-bots/state/fmhy-queue.json` records investigated, blocked, skipped, and pending sites. Inside the research container:
 
 ```bash
+python3 automation/watch-bots/fmhy_queue.py status
 python3 automation/watch-bots/fmhy_queue.py index
 python3 automation/watch-bots/fmhy_queue.py lookup https://cinejoy.pk
-python3 automation/watch-bots/fmhy_queue.py sync-index
 ```
 
-Research outcomes live in `/home/jack/watch-bots/state/fmhy-queue.json` on this host. Keep that state when upgrading; it is not committed to GitHub because investigation artifacts can contain private or short-lived media data.
-
-Both profiles have separate checkouts. The research checkout's push remote is disabled; the integrator checkout tracks `origin/main`. Research code and probe results live in `/home/jack/watch-bots/providers/artifacts/<queue-id>/`, outside either Git checkout. These may contain short-lived media URLs and must not be committed. The Kanban card carries paths and a sanitized summary, not the media URLs.
-
-The scheduler uses the Watch Providers profile's hourly cron job in `--no-agent` mode. Its script sends a research assignment into the profile's visible Bot Chat; the bot claims one site there and posts short progress notes while it works. The final result and failures appear in the same chat. A failed turn can retry the leased item after it expires. On a verified result, `handoff.py` validates the evidence and creates an idempotent Kanban task. New cards start blocked so the host gateway does not also start a background worker. The Watch Integrator profile's lightweight inbox cron checks for a new card every minute and sends it to its own Bot Chat. A source that has no usable stream is marked unavailable or blocked, so the next run moves on.
-
-The inbox records delivered card IDs in `/home/jack/watch-bots/state/integration-chat-sent.json` to prevent duplicate chat turns. Failed integrations stay blocked with a comment; an operator can inspect the card and retry explicitly. The Movy card created before this change is already running in a background worker and is left there until it finishes.
-
-## Evidence contract
-
-Copy `evidence.example.json` into the candidate's artifact directory and fill it with the exact provider ID, site URL, method/routes, known-good sample, media result, and API/adapter path. Save the output from `skills/stream-api-reverse-engineering/scripts/probe-hls.mjs` as `probe.json`. Both files stay in the artifact directory. Then:
+Research artifacts live under `/home/jack/watch-bots/providers/artifacts/<queue-id>/` inside Docker. Use `evidence.example.json` for the handoff contract. Keep signed URLs, cookies, credentials, and raw site instructions out of the Kanban card and Git commits. A verified handoff uses:
 
 ```bash
 python3 automation/watch-bots/handoff.py /home/jack/watch-bots/providers/artifacts/<queue-id>/evidence.json
 ```
 
-The handoff helper rejects an unclaimed site, a stale or non-video probe, missing implementation, or mismatched source host. The integrator must still verify the real stream and app playback itself.
-
-## Operations
-
-```bash
-python3 automation/watch-bots/fmhy_queue.py status
-hermes -p watch-providers cron list
-hermes kanban --board watch-local list
-hermes gateway status
-```
-
-`fmhy_queue.py refresh` updates the site list while retaining progress. `fmhy_queue.py finish <id> unavailable|blocked|skipped --note 'reason'` closes a candidate without a handoff. Use `hermes -p watch-providers cron pause <job-id>` to stop new research; existing integrator cards remain on the board. The app repo is the only GitHub publication target. A bot profile is a local process identity and does not itself create a GitHub account.
+The handoff helper checks the candidate ID, file locations, fresh raw-media proof, and allowed fields. The integrator still verifies the stream independently. If access or verification fails, close the queue item as `blocked` or `unavailable`; do not send an integration card.
