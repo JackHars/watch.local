@@ -55,7 +55,7 @@ export function mountHealthCheck(root, { providers, enabled, api, Hls }) {
       engines.get(id)?.startLoad();
       video.play().then(() => { button.textContent = 'Pause preview'; }).catch(() => {
         button.textContent = 'Play preview';
-        setState(card, 'playable', 'Frame loaded. Tap to start this preview.');
+        setState(card, card.dataset.state, 'Frame loaded. Tap to start this preview.');
       });
     } else { video.pause(); engines.get(id)?.stopLoad(); button.textContent = 'Play preview'; }
   };
@@ -96,10 +96,14 @@ export function mountHealthCheck(root, { providers, enabled, api, Hls }) {
         } else if (Hls?.isSupported()) {
           const engine = new Hls({ maxBufferLength: 2, maxMaxBufferLength: 5, backBufferLength: 0, manifestLoadingTimeOut: 30000 });
           engines.set(id, engine);
-          engine.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => finish(Error('The video could not start.'))));
+          engine.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(error => {
+            if (error.name === 'NotAllowedError') finish(Error('The browser blocked muted preview playback.'));
+            // A segment or codec failure often rejects play() before Hls.js
+            // reports the useful error. Let that event explain the failure.
+          }));
           engine.on(Hls.Events.ERROR, (_event, data) => {
             if (!data.fatal) return;
-            hlsError = data.details || 'Stream playback failed.';
+            hlsError = `${data.details || 'Stream playback failed.'}${data.response?.code ? ` (HTTP ${data.response.code})` : ''}`;
             const error = Error(hlsError === 'manifestIncompatibleCodecsError' ? 'This stream uses a codec this browser cannot play.' : hlsError);
             if (hlsError === 'manifestIncompatibleCodecsError') error.healthCode = 'unsupported';
             finish(error);
