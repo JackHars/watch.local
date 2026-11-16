@@ -160,11 +160,12 @@ function mockProvider(provider, kind, { brokenAthena = false, bait = false } = {
   return { fetchResource, calls };
 }
 
-// meowtv and flickystream are excluded: their envelopes are decrypted by each
-// site's one-way deobfuscator WASM, so a generic fixture cannot mint a valid
-// one — test/meowtv.mjs and test/flickystream.mjs cover the full chain
-// (ticket, path, identity, fallback, relay) with the injected seam.
-for (const provider of PROVIDERS.filter(p => !['cinejoy', 'reelix', 'movy', 'meowtv', 'flickystream'].includes(p))) for (const kind of ['movie', 'series']) {
+// meowtv, flickystream, and bingebang are excluded: their envelopes come from
+// per-site one-way deobfuscators (WASM or ticketed SHA-256-CTR) that a generic
+// fixture cannot mint — test/meowtv.mjs, test/flickystream.mjs, and
+// test/bingebang.mjs cover the full chain (ticket, identity, fallback, relay)
+// with the injected seam.
+for (const provider of PROVIDERS.filter(p => !['cinejoy', 'reelix', 'movy', 'meowtv', 'flickystream', 'bingebang'].includes(p))) for (const kind of ['movie', 'series']) {
   test(`${provider} ${kind}: resolves and verifies HLS with provider headers`, async () => {
     const mock = mockProvider(provider, kind);
     const resolver = createProviderResolver({ ...mock, getCatalogData: async path => { assert.match(path, /\/550\/external_ids$/); return { imdb_id: 'tt0137523' }; } });

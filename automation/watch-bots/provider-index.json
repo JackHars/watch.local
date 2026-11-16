@@ -111,6 +111,13 @@
       "implementation": ["api/ghostflix.mjs", "api/providers.mjs"]
     },
     {
+      "id": "bingebang",
+      "name": "BingeBang",
+      "kind": "vod",
+      "origins": ["https://bingebang.sx"],
+      "implementation": ["api/bingebang.mjs", "api/bb-crypto.mjs", "api/providers.mjs"]
+    },
+    {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",
