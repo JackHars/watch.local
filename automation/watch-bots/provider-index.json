@@ -125,6 +125,13 @@
       "implementation": ["api/moviebite.mjs", "api/providers.mjs"]
     },
     {
+      "id": "moonflix",
+      "name": "Moonflix",
+      "kind": "vod",
+      "origins": ["https://moonflix.website", "https://filmu-1.onrender.com", "https://vidzy-0aej.onrender.com", "https://gzip.rousav.tech", "https://img.rousav.tech"],
+      "implementation": ["api/moonflix.mjs", "api/providers.mjs"]
+    },
+    {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",
