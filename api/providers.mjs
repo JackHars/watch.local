@@ -20,7 +20,8 @@ import { createZenoxResolver } from './zenox.mjs';
 import { createBingrResolver } from './bingr.mjs';
 
 export const PROVIDERS = Object.freeze(['cinejoy', 'atlantic', 'tvids', 'zstream', 'vidrift', 'vidsrc', 'reelix', 'movy', 'rive', 'corsflix', 'meowtv', 'flickystream', 'dulo', 'arrowtv', 'ghostflix', 'bingebang', 'moviebite', 'moonflix', 'cinema', 'zenox', 'bingr']);
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+export const MEDIA_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+const UA = MEDIA_USER_AGENT;
 const validatedPlaylists = new Map();
 const PLAYLIST_HANDOFF_MS = 90000;
 export function validatedPlaylist(url, headers) {

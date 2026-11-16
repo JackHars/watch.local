@@ -61,6 +61,8 @@ function ghostflixFetch({ streamNull = false, baitFirst = false, baitAll = false
       });
     }
     if (u.hostname === 'proxy.vidbolt.xyz') {
+      assert.equal(options.headers?.origin, undefined, 'the relay must not send Cinejoy origin to Ghostflix');
+      assert.equal(options.headers?.referer, undefined, 'the relay must not send Cinejoy referer to Ghostflix');
       mediaCalls.push({ url: u, referer: options.headers?.referer });
       if (/stale-preview/.test(u.pathname)) throw new Error('stale inline master preview was fetched');
       if (u.pathname.endsWith('tokA')) return hlsRes(leaf('m/tokA'));

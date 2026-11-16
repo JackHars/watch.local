@@ -8,7 +8,7 @@ import { webcrypto as crypto } from 'node:crypto';
 import { settingsStore } from './settings.mjs';
 import { runningRevision } from './runtime-version.mjs';
 import { getMetadata } from './metadata.mjs';
-import { createProviderResolver, PROVIDERS, mediaHeaders } from './providers.mjs';
+import { createProviderResolver, PROVIDERS, mediaHeaders, MEDIA_USER_AGENT } from './providers.mjs';
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
 const BASE = 'https://api.wing.st';
@@ -132,7 +132,7 @@ const mapItem = (x, kind) => ({
 });
 
 const fetchUpstream = (u, timeoutMs = 90_000, options = {}) =>
-  fetch(u, { ...options, headers: { ...HDRS, ...options.headers }, signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(options.signal ? [options.signal] : [])]) });
+  fetch(u, { ...options, headers: { 'user-agent': MEDIA_USER_AGENT, ...options.headers }, signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(options.signal ? [options.signal] : [])]) });
 
 const absUrl = (rel, base) =>
   (rel.startsWith('http') ? new URL(rel) : new URL(rel, base)).href;
@@ -436,7 +436,7 @@ export async function handleApiRequest(req, res) {
       const u = q('u');
       if (!/^https?:\/\//.test(u)) return sendErr(res, 400, 'u must be an http(s) URL');
       let headers;
-      try { headers = q('h') ? mediaHeaders(JSON.parse(Buffer.from(q('h'), 'base64url').toString())) : HDRS; }
+      try { headers = q('h') ? mediaHeaders(JSON.parse(Buffer.from(q('h'), 'base64url').toString())) : {}; }
       catch { return sendErr(res, 400, 'Invalid proxy headers'); }
       const r = await fetchUpstream(u, 120_000, { headers, signal: controller.signal });
       if (!r.ok) return sendErr(res, 502, 'upstream HTTP ' + r.status + ' for ' + u);
