@@ -5,8 +5,16 @@ function localToday() {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
-const calendar = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2ZM8 14h3m-3 4h3m4-4h1"/></svg>';
 const formatDate = (value, options) => new Intl.DateTimeFormat('en-US', { ...options, timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`));
+function episodeTitle(episode, season) {
+  if (!episode?.name || (season && episode.season !== season.number)) return '';
+  const title = episode.name.trim();
+  const normalized = title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  // Catalogs often use the episode number as its name until a title is announced.
+  if (/^(?:(?:season|s)\s*\d+\s*)?(?:episode|ep|e)\s*\d+$/.test(normalized)
+    || /^(?:season\s*\d+|\d+(?:x\d+)?|tba|tbd|untitled|to be announced|to be determined)$/.test(normalized)) return '';
+  return title;
+}
 function reportLink(value) {
   try { const url = new URL(value); return url.protocol === 'https:' && url.hostname === 'mande.net' && url.pathname.startsWith('/production-listings/series/') && !url.username && !url.password ? url.href : ''; }
   catch { return ''; }
@@ -25,7 +33,7 @@ export function upcomingPresentation(data, { today = localToday() } = {}) {
   const heading = season ? `Season ${season.number}` : `Season ${episode.season}${episode.number ? ` · Episode ${episode.number}` : ''}`;
   const date = season ? season.premiereDate : episode.airDate;
   const base = { heading, eyebrow: season ? 'Coming next' : 'Next episode' };
-  if (validDate(date)) return { ...base, kind: 'scheduled', status: 'Scheduled', date, release: formatDate(date, { month: 'short', day: 'numeric', year: 'numeric' }), eta: countdown(date, today), note: episode?.name && (!season || episode.season === season.number) ? episode.name : '' };
+  if (validDate(date)) return { ...base, kind: 'scheduled', status: 'Scheduled', date, release: formatDate(date, { month: 'short', day: 'numeric', year: 'numeric' }), eta: countdown(date, today), note: episodeTitle(episode, season) };
   const url = reportLink(report?.url);
   if (url && report.confidence === 'reported' && (report.releaseWindow || report.productionStatus)) {
     return { ...base, kind: 'reported', status: 'Reported', release: report.releaseWindow ? `Expected ${report.releaseWindow}` : 'Release date TBA', eta: '', production: report.productionStatus || '', url,
@@ -34,11 +42,11 @@ export function upcomingPresentation(data, { today = localToday() } = {}) {
   return { ...base, kind: 'unknown', status: 'Announced', release: 'Release date TBA', eta: '', note: '' };
 }
 
-export function upcomingCard(data, { poster = '', today } = {}) {
+export function upcomingDetails(data, { today } = {}) {
   const view = upcomingPresentation(data, { today });
   if (!view) return '';
-  const artwork = poster ? `<img src="${esc(poster)}" alt="" loading="lazy">` : calendar;
   const release = view.date ? `<time datetime="${esc(view.date)}">${esc(view.release)}</time>` : esc(view.release);
+  const secondary = view.eta || view.production;
   const source = view.url ? `<div class="upcoming-report"><a href="${esc(view.url)}" target="_blank" rel="noopener noreferrer" aria-label="Read the M&amp;E production report">Production report <span aria-hidden="true">↗</span></a>${view.updated ? `<span>Updated ${esc(view.updated)}</span>` : ''}</div>` : '';
-  return `<section class="upcoming-card" aria-label="Upcoming release"><div class="upcoming-main"><div class="upcoming-art ${poster ? '' : 'upcoming-art-placeholder'}">${artwork}</div><div class="upcoming-copy"><div class="upcoming-heading"><span class="upcoming-label">${esc(view.eyebrow)}</span><span class="upcoming-status">${esc(view.status)}</span></div><h2>${esc(view.heading)}</h2><p class="upcoming-date">${release}</p>${view.eta ? `<p class="upcoming-countdown">${esc(view.eta)}</p>` : ''}${view.production ? `<p class="upcoming-production">${esc(view.production)}</p>` : ''}</div></div>${view.note ? `<p class="upcoming-note">${esc(view.note)}</p>` : ''}${source}</section>`;
+  return `<section class="upcoming-details" aria-label="Upcoming release"><p class="upcoming-label">${esc(view.eyebrow)}</p><h2>${esc(view.heading)}</h2>${view.note ? `<p class="upcoming-note">${esc(view.note)}</p>` : ''}<p class="upcoming-release">${release}${secondary ? `<span class="upcoming-secondary"> · ${esc(secondary)}</span>` : ''}</p>${source}</section>`;
 }

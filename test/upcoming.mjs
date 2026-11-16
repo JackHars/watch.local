@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createUpcomingService, summarizeUpcoming } from '../api/upcoming.mjs';
 import { parseProductionReport, fetchProductionReport } from '../api/production-report.mjs';
-import { upcomingPresentation, upcomingCard } from '../public/upcoming.mjs';
+import { upcomingPresentation, upcomingDetails } from '../public/upcoming.mjs';
 
 const today = '2026-11-15';
 const tmdb = { seasons: [
@@ -110,7 +110,7 @@ const reportOptions = { title: 'FROM', season: 5, overview, now: Date.parse(toda
 test('production reports preserve published windows and distinguish scheduled starts from actual starts', () => {
   const report = parseProductionReport(productionHTML, reportOptions);
   assert.equal(report.releaseWindow, '2027');
-  assert.equal(report.productionStatus, 'Filming / In production');
+  assert.equal(report.productionStatus, 'In production');
   assert.equal(report.scheduledStart, '2026-07-06');
   assert.equal(report.updatedAt, '2026-11-09');
   assert.equal(report.confidence, 'reported');
@@ -148,15 +148,15 @@ test('undated seasons can include a sourced report without fabricating a premier
   assert.equal('estimate' in result, false);
 });
 
-test('the card shows sourced expectations without a guessed countdown, and scheduled dates take priority', () => {
+test('upcoming details show sourced expectations without a guessed countdown, and scheduled dates take priority', () => {
   const report = { ...parseProductionReport(productionHTML, reportOptions), url: 'https://mande.net/production-listings/series/from/season-5' };
   const data = { season: { number: 5, premiereDate: null }, report };
   const reported = upcomingPresentation(data, { today });
   assert.equal(reported.release, 'Expected 2027');
   assert.equal(reported.status, 'Reported');
   assert.equal(reported.eta, '');
-  assert.match(upcomingCard(data), /Filming \/ In production/);
-  assert.match(upcomingCard(data), /Production report/);
+  assert.match(upcomingDetails(data), /In production/);
+  assert.match(upcomingDetails(data), /Production report/);
   const scheduled = upcomingPresentation({ ...data, season: { number: 5, premiereDate: '2026-11-16' } }, { today });
   assert.equal(scheduled.status, 'Scheduled');
   assert.equal(scheduled.eta, 'Tomorrow');
@@ -165,4 +165,23 @@ test('the card shows sourced expectations without a guessed countdown, and sched
   assert.equal(unknown.release, 'Release date TBA');
   assert.equal(unknown.eta, '');
   assert.equal(upcomingPresentation({ ...data, report: { ...report, url: 'javascript:alert(1)' } }, { today }).status, 'Announced');
+});
+
+test('upcoming details omit placeholder episode names but retain distinctive titles', () => {
+  const episode = { season: 3, number: 5, airDate: '2026-11-18' };
+  for (const name of ['Episode 5', ' episode #05 ', 'Ep. 5', 'S03E05', 'Season 3 · Episode 5', '3x05', '5', 'TBA', 'Untitled']) {
+    const data = { nextEpisode: { ...episode, name } };
+    const view = upcomingPresentation(data, { today });
+    assert.equal(view.heading, 'Season 3 · Episode 5');
+    assert.equal(view.note, '', name);
+    const html = upcomingDetails(data, { today });
+    assert.equal(html.match(/Episode 5/g)?.length, 1, name);
+    assert.doesNotMatch(html, /upcoming-note|<img|<svg|upcoming-card|upcoming-status/);
+  }
+  const titled = { nextEpisode: { ...episode, name: 'The Bells & the Storm' } };
+  assert.equal(upcomingPresentation(titled, { today }).note, 'The Bells & the Storm');
+  assert.match(upcomingDetails(titled, { today }), /The Bells &amp; the Storm/);
+  const premiere = { season: { number: 3, premiereDate: episode.airDate }, nextEpisode: { ...episode, number: 1, name: 'Episode 1' } };
+  assert.equal(upcomingPresentation(premiere, { today }).note, '');
+  assert.equal(upcomingPresentation({ ...titled, season: { number: 4, premiereDate: '2027-11-18' } }, { today }).note, '');
 });

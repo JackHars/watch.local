@@ -5,7 +5,7 @@ const normalize = value => String(value || '').normalize('NFKD').replace(/\p{M}/
 const statuses = new Map([
   ['development', 'In development'], ['active development', 'In development'],
   ['preproduction', 'Pre-production'], ['pre production', 'Pre-production'],
-  ['filming in production', 'Filming / In production'], ['post', 'Post-production'],
+  ['filming in production', 'In production'], ['post', 'Post-production'],
   ['post production', 'Post-production'], ['completed', 'Production complete'],
 ]);
 const words = value => new Set(normalize(value).split(' ').filter(word => word.length > 4 && !['season','series','story','their','about','after','before','which','there','where','those','these','would','could','final','young','lives','world'].includes(word)));
