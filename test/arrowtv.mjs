@@ -12,7 +12,8 @@ import { createProviderResolver } from '../api/providers.mjs';
 // renditions and a 1080p/4K video ladder, each level a VOD fMP4 playlist whose
 // #EXT-X-MAP init and ~6 s segments the CDN mislabels as image/jpeg (ftyp
 // init, styp/sidx/moof/mdat segments). Media validation is byte-based, never
-// content-type. The JSON `id` doubles as the title/episode identity check.
+// content-type. The JSON `id` is now an opaque content hash; the route, media
+// type, episode fields, and optional catalog title provide identity checks.
 const REFERER = 'https://player.cinezo.live/';
 
 const ftyp = Buffer.from('000000186674797069736f6d00000200', 'hex');
@@ -31,7 +32,7 @@ const mdat = (seed) => {
 const videoSegment = (seed) => Buffer.concat([styp, sidx, moof(seed), mdat(seed)]);
 const audioSegment = (seed) => Buffer.concat([ftyp, moof(seed)]);
 
-function arrowtvFetch({ kind = 'movie', tmdb = 1423191, season = 1, episode = 1, wrongId = false, noHls = false, htmlMaster = false, baitSegment = false } = {}) {
+function arrowtvFetch({ kind = 'movie', tmdb = 1423191, season = 1, episode = 1, wrongId = false, wrongEpisode = false, wrongTitle = false, noHls = false, htmlMaster = false, baitSegment = false } = {}) {
   const calls = [];
   const mediaCalls = [];
   const jsonPath = kind === 'series' ? `/tv/${tmdb}/${season}/${episode}.json` : `/movie/${tmdb}.json`;
@@ -39,10 +40,11 @@ function arrowtvFetch({ kind = 'movie', tmdb = 1423191, season = 1, episode = 1,
   const media = `https://media.punkflix.net/vod/${vod}/`;
   const hls = `${media}master.m3u8?t=1700000000&s=deadbeef`;
   const jsonBody = {
-    id: wrongId ? tmdb + 1 : tmdb,
-    title: kind === 'series' ? 'A Shadow of the Past' : 'Resident Evil',
+    id: wrongId ? tmdb + 1 : 'bff595746f7e3f24884aff82183688e4',
+    title: wrongTitle ? 'Different Title' : kind === 'series' ? 'A Shadow of the Past' : 'Resident Evil',
     year: kind === 'series' ? 2022 : 2026,
-    type: kind === 'series' ? 'tv' : 'movie',
+    type: kind === 'series' ? 'Episode' : 'Movie',
+    ...(kind === 'series' ? { series: 'The Rings of Power', season, episode: wrongEpisode ? episode + 1 : episode } : {}),
     container: 'mp4',
     stream: noHls ? undefined : { hls, original: 'unused', remux: 'unused' },
     audio: [{ language: 'EN', type: 'internal' }],
@@ -65,7 +67,7 @@ function arrowtvFetch({ kind = 'movie', tmdb = 1423191, season = 1, episode = 1,
     if (u.hostname === 'punkflix.net') {
       assert.equal(u.pathname, jsonPath);
       assert.equal(options.headers?.referer, REFERER);
-      return json(noHls ? { id: jsonBody.id, stream: { original: 'unused' } } : jsonBody);
+      return json(noHls ? { ...jsonBody, stream: { original: 'unused' } } : jsonBody);
     }
     if (u.hostname === 'media.punkflix.net') {
       mediaCalls.push({ url: u, referer: options.headers?.referer });
@@ -144,6 +146,22 @@ test('ArrowTV validates the default audio rendition and never fetches the unused
 test('ArrowTV rejects a JSON answer for a different title (identity check) and falls back', async () => {
   const fixture = arrowtvFetch({ wrongId: true });
   const resolve = createProviderResolver({ ...fixture, cinejoy: cinejoyStub(), getPolicy: policy() });
+  const result = await resolve({ tmdb: 1423191, kind: 'movie' });
+  assert.equal(result.provider, 'cinejoy');
+  assert.match(result.provider_errors.arrowtv, /different title/);
+});
+
+test('ArrowTV rejects a wrong episode even when the opaque content ID looks valid', async () => {
+  const fixture = arrowtvFetch({ kind: 'series', tmdb: 84773, season: 3, episode: 2, wrongEpisode: true });
+  const resolve = createProviderResolver({ ...fixture, cinejoy: cinejoyStub(), getPolicy: policy() });
+  const result = await resolve({ tmdb: 84773, kind: 'series', season: 3, episode: 2 });
+  assert.equal(result.provider, 'cinejoy');
+  assert.match(result.provider_errors.arrowtv, /different episode/);
+});
+
+test('ArrowTV compares opaque-ID movie titles with available catalog metadata', async () => {
+  const fixture = arrowtvFetch({ wrongTitle: true });
+  const resolve = createProviderResolver({ ...fixture, getCatalogData: async () => ({ title: 'Resident Evil' }), cinejoy: cinejoyStub(), getPolicy: policy() });
   const result = await resolve({ tmdb: 1423191, kind: 'movie' });
   assert.equal(result.provider, 'cinejoy');
   assert.match(result.provider_errors.arrowtv, /different title/);

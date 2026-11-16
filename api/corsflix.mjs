@@ -9,9 +9,10 @@ import { httpURL } from './providers.mjs';
 // the player's own custom bundle (the vn-*.js script on the vidrift.net
 // player origin) — protocol data distributed to every browser visitor, not a
 // credential. The plaintext carries /hls/<token>/master.m3u8 stream paths;
-// the token is base64url JSON that decodes to the direct playlist on
+// onehd tokens are base64url JSON that decode to the direct playlist on
 // embed.vidrift.net, the Referer that media host requires, and an identity
-// block (k/id, plus season/episode for TV) that must match the request. The
+// block (k/id, plus season/episode for TV) that must match the request. Other
+// backends return direct signed HLS URLs with their own media headers. The
 // resolver rate-limits burst traffic by answering with valid envelopes whose
 // plaintext is an empty object, so backends are tried one at a time with a
 // short pause between attempts. Live survey 2026-11-15: onehd, allmovies,
@@ -21,7 +22,9 @@ import { httpURL } from './providers.mjs';
 const API = 'https://new.vidnest.fun';
 export const corsflixKey = 'K3p8vQ2mX9rL5wZ0fN7bG1sH4tJ6dC9_y8S3wM1nQ5pL2';
 const PLAYER_ORIGIN = 'https://vidrift.net';
-const BACKENDS = ['onehd', 'allmovies', 'hollymoviehd', 'ophim', 'vidzee', 'flixhq', 'yflix', 'rogflix'];
+// allmovies currently serves H.264 MPEG-TS, while onehd serves HEVC-only
+// fMP4 for many titles. Prefer the stream that also works in Chrome.
+const BACKENDS = ['allmovies', 'onehd', 'hollymoviehd', 'ophim', 'vidzee', 'flixhq', 'yflix', 'rogflix'];
 const BACKEND_DELAY_MS = 300;
 const MAX_STREAMS_PER_BACKEND = 6;
 
@@ -43,10 +46,23 @@ export function decryptCorsflix(envelope) {
   return JSON.parse(decryptGCM(key, b64urlDecode(envelope.d)).toString('utf8'));
 }
 function decodeStream(stream) {
-  const token = String(stream?.url || '').replace(/^\/hls\//, '').replace(/\/master\.m3u8$/, '');
-  const inner = JSON.parse(b64urlDecode(token).toString('utf8'));
+  const raw = String(stream?.url || '');
+  if (!raw) throw new Error('CorsFlix stream has no URL');
+  // Some backends return a direct signed HLS URL rather than the older
+  // base64url JSON /hls/ wrapper. Their API route is TMDB/episode keyed.
+  if (!raw.startsWith('/hls/')) {
+    return { url: httpURL(raw, API), headers: stream.headers || { referer: `${PLAYER_ORIGIN}/` }, meta: null };
+  }
+  const token = raw.replace(/^\/hls\//, '').replace(/\/master\.m3u8$/, '');
+  let inner;
+  try {
+    inner = JSON.parse(b64urlDecode(token).toString('utf8'));
+  } catch {
+    return { url: httpURL(raw, API), headers: stream.headers || { referer: `${PLAYER_ORIGIN}/` }, meta: null };
+  }
   if (typeof inner?.u !== 'string') throw new Error('CorsFlix stream token has no playlist');
-  return { url: httpURL(inner.u), referer: inner?.h?.Referer || `${PLAYER_ORIGIN}/`, meta: inner.m };
+  if (!inner.m) throw new Error('CorsFlix stream token has no media identity');
+  return { url: httpURL(inner.u), headers: { referer: inner?.h?.Referer || `${PLAYER_ORIGIN}/` }, meta: inner.m };
 }
 function checkIdentity(kind, meta, requested) {
   if (meta?.k !== kind) throw new Error('CorsFlix returned a different media type');
@@ -79,12 +95,13 @@ export function createCorsflixResolver() {
         const streams = Array.isArray(data?.streams) ? data.streams : [];
         if (!streams.length) throw new Error('no streams');
         let streamError = 'CorsFlix returned no usable stream';
-        for (const stream of streams.slice(0, MAX_STREAMS_PER_BACKEND)) {
+        const preferred = [...streams].sort((a, b) => Number(/^(english|original)$/i.test(b.language || '')) - Number(/^(english|original)$/i.test(a.language || '')));
+        for (const stream of preferred.slice(0, MAX_STREAMS_PER_BACKEND)) {
           let candidate;
           try {
-            const { url, referer, meta } = decodeStream(stream);
-            checkIdentity(kind, meta, input);
-            candidate = { url, headers: { referer }, source: `${name}/${stream.quality || stream.language || 'stream'}` };
+            const { url, headers, meta } = decodeStream(stream);
+            if (meta) checkIdentity(kind, meta, input);
+            candidate = { url, headers, source: `${name}/${stream.quality || stream.language || 'stream'}` };
           } catch (error) { streamError = error.message; continue; }
           try {
             return { ...(await ctx.accept(candidate.url, candidate.headers, candidate.source)), server_errors: serverErrors };

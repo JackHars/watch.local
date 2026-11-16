@@ -11,6 +11,7 @@ import { decryptCorsflix, corsflixKey } from '../api/corsflix.mjs';
 const RESOLVER = 'https://new.vidnest.fun';
 const CDN_A = 'https://cdn.a.test';
 const CDN_B = 'https://cdn.b.test';
+const CDN_AVC = 'https://cdn.avc.test';
 const BAITS = 'https://img.bait.test';
 const REFERER = 'https://vidrift.example.net/';
 const BACKEND_PREFIXES = ['onehd', 'allmovies', 'hollymoviehd', 'ophim', 'vidzee', 'flixhq', 'yflix', 'rogflix'];
@@ -44,7 +45,12 @@ function corsflixFetch({ brokenFirst = false, emptyBackends = [], episodeDelta =
   const leaf = (initName, segName) => `#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-TARGETDURATION:7\n#EXT-X-MEDIA-SEQUENCE:1\n#EXT-X-MAP:URI="${initName}"\n#EXTINF:7.0,\n${segName}\n#EXTINF:7.0,\n${segName}\n#EXT-X-ENDLIST\n`;
   const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
   const hls = text => new Response(text, { headers: { 'content-type': 'application/vnd.apple.mpegurl' } });
-  const plaintextFor = (kind, id, season, episode) => ({
+  const plaintextFor = (kind, id, season, episode, prefix) => prefix === 'allmovies' ? {
+    streams: [
+      { language: 'Hindi', type: 'hls', url: `${CDN_AVC}/hindi/master.m3u8`, headers: { Referer: REFERER } },
+      { language: 'English', type: 'hls', url: `${CDN_AVC}/english/master.m3u8`, headers: { Referer: REFERER } },
+    ], totalLanguages: 2,
+  } : ({
     status: 'success',
     streams: [
       { language: 'Original', quality: '1080p', type: 'hls', url: `/hls/${token({ u: `${CDN_A}/api/orion/000000000000000000000000000000a1/master.m3u8`, h: { Referer: REFERER }, m: meta(kind, id, season + episodeDelta, episode + episodeDelta, 'Original') })}/master.m3u8` },
@@ -65,7 +71,17 @@ function corsflixFetch({ brokenFirst = false, emptyBackends = [], episodeDelta =
       const [, prefix, kind, id, season, episode] = m;
       if (kind === 'tv' && (season === undefined || episode === undefined)) return new Response('bad request', { status: 400 });
       if (emptyBackends.includes(prefix)) return json(envelope({}, n));
-      return json(envelope(plaintextFor(kind, id, Number(season || 0), Number(episode || 0)), n));
+      return json(envelope(plaintextFor(kind, id, Number(season || 0), Number(episode || 0), prefix), n));
+    }
+    if (u.origin === CDN_AVC) {
+      mediaCalls.push({ url: u, referer: headers.referer || headers.Referer, ua: headers['user-agent'] });
+      if (u.pathname.endsWith('master.m3u8')) return hls('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720,CODECS="avc1.64001f,mp4a.40.2"\n720.m3u8\n');
+      if (u.pathname.endsWith('720.m3u8')) return hls('#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nseg0.ts\n#EXT-X-ENDLIST\n');
+      if (u.pathname.endsWith('seg0.ts')) {
+        const ts = Buffer.alloc(188 * 4); ts[0] = ts[188] = ts[376] = ts[564] = 0x47;
+        return new Response(ts);
+      }
+      return new Response('No media', { status: 404 });
     }
     if (u.origin === CDN_A || u.origin === CDN_B) {
       mediaCalls.push({ url: u, referer: headers.referer, ua: headers['user-agent'] });
@@ -111,40 +127,52 @@ test('CorsFlix decrypts its envelope with the public key and rejects tampered or
 });
 
 test('CorsFlix movie: resolves the exact requested TMDB id through the encrypted resolver and caches', async () => {
-  const fixture = corsflixFetch();
+  const fixture = corsflixFetch({ emptyBackends: ['allmovies'] });
   const resolve = createProviderResolver(fixture);
   const result = await resolve({ tmdb: 27205, kind: 'movie', provider: 'corsflix' });
   assert.equal(result.provider, 'corsflix');
   assert.equal(result.tmdb, 27205);
   assert.equal(result.kind, 'movie');
   assert.equal(result.server, 'onehd/1080p');
-  const resolverCall = fixture.calls.find(c => c.origin === RESOLVER);
+  const resolverCall = fixture.calls.find(c => c.pathname === '/onehd/movie/27205');
   assert.equal(resolverCall.pathname, '/onehd/movie/27205');
   assert.match(resolverCall.searchParams.get('_n'), /^[A-Za-z0-9_-]{22}$/);
   for (const call of fixture.mediaCalls) {
     assert.equal(call.referer, REFERER);
     assert.match(call.ua, /Chrome/);
   }
-  assert.ok(fixture.calls.every(c => [RESOLVER, CDN_A, CDN_B, BAITS].includes(c.origin)));
+  assert.ok(fixture.calls.every(c => [RESOLVER, CDN_A, CDN_B, CDN_AVC, BAITS].includes(c.origin)));
   const before = fixture.calls.length;
   assert.equal((await resolve({ tmdb: 27205, kind: 'movie', provider: 'corsflix' })).cached, true);
   assert.equal(fixture.calls.length, before);
 });
 
 test('CorsFlix TV: preserves the exact episode in the resolver path and result identity', async () => {
-  const fixture = corsflixFetch();
+  const fixture = corsflixFetch({ emptyBackends: ['allmovies'] });
   const resolve = createProviderResolver(fixture);
   const result = await resolve({ tmdb: 1396, kind: 'series', season: 3, episode: 2, provider: 'corsflix' });
   assert.equal(result.provider, 'corsflix');
   assert.equal(result.tmdb, 1396);
   assert.equal(result.season, 3);
   assert.equal(result.episode, 2);
-  const resolverCall = fixture.calls.find(c => c.origin === RESOLVER);
+  const resolverCall = fixture.calls.find(c => c.pathname === '/onehd/tv/1396/3/2');
   assert.equal(resolverCall.pathname, '/onehd/tv/1396/3/2');
 });
 
+test('CorsFlix prefers the direct English H.264 source over the HEVC-only backup', async () => {
+  const fixture = corsflixFetch();
+  const resolve = createProviderResolver(fixture);
+  const result = await resolve({ tmdb: 1396, kind: 'series', season: 1, episode: 1, provider: 'corsflix' });
+  assert.equal(result.server, 'allmovies/English');
+  assert.equal(fixture.calls.find(c => c.origin === RESOLVER).pathname, '/allmovies/tv/1396/1/1');
+  assert.ok(!fixture.calls.some(c => c.pathname === '/onehd/tv/1396/1/1'));
+  assert.ok(fixture.mediaCalls.some(c => c.url.origin === CDN_AVC && c.url.pathname.includes('/english/')));
+  assert.ok(!fixture.mediaCalls.some(c => c.url.origin === CDN_AVC && c.url.pathname.includes('/hindi/')));
+  assert.ok(fixture.mediaCalls.filter(c => c.url.origin === CDN_AVC).every(c => c.referer === REFERER));
+});
+
 test('CorsFlix fails honestly when a stream token names a different episode', async () => {
-  const fixture = corsflixFetch({ episodeDelta: 1 });
+  const fixture = corsflixFetch({ episodeDelta: 1, emptyBackends: ['allmovies'] });
   const resolve = createProviderResolver({ ...fixture, cinejoy: cinejoyStub(), getPolicy: policy() });
   const result = await resolve({ tmdb: 1396, kind: 'series', season: 1, episode: 1 });
   assert.equal(result.provider, 'cinejoy');
@@ -152,7 +180,7 @@ test('CorsFlix fails honestly when a stream token names a different episode', as
 });
 
 test('CorsFlix tries streams best-first, skips image bait, and accepts the next working stream', async () => {
-  const fixture = corsflixFetch({ brokenFirst: true });
+  const fixture = corsflixFetch({ brokenFirst: true, emptyBackends: ['allmovies'] });
   const resolve = createProviderResolver(fixture);
   const result = await resolve({ tmdb: 27205, kind: 'movie', provider: 'corsflix' });
   assert.equal(result.provider, 'corsflix');
@@ -162,12 +190,12 @@ test('CorsFlix tries streams best-first, skips image bait, and accepts the next 
 });
 
 test('CorsFlix treats a rate-limited empty envelope as a per-backend failure and moves to the next backend', async () => {
-  const fixture = corsflixFetch({ emptyBackends: ['onehd'] });
+  const fixture = corsflixFetch({ emptyBackends: ['allmovies'] });
   const resolve = createProviderResolver(fixture);
   const result = await resolve({ tmdb: 27205, kind: 'movie', provider: 'corsflix' });
   assert.equal(result.provider, 'corsflix');
-  assert.equal(result.server, 'allmovies/1080p');
-  assert.match(result.server_errors.onehd, /no streams/);
+  assert.equal(result.server, 'onehd/1080p');
+  assert.match(result.server_errors.allmovies, /no streams/);
   assert.ok(fixture.calls.filter(c => c.origin === RESOLVER).length >= 2);
 });
 
@@ -200,7 +228,7 @@ test('CorsFlix serves IPTV movie routes through the signed local HLS relay', asy
   process.env.WATCHLOCAL_DATA_DIR = directory;
   let server;
   try {
-    const fixture = corsflixFetch();
+    const fixture = corsflixFetch({ emptyBackends: ['allmovies'] });
     globalThis.fetch = (url, options) => new URL(url).hostname === '127.0.0.1' ? original(url, options) : fixture.fetchResource(url, options);
     const { initializeIPTV } = await import('../api/iptv.mjs');
     const { createServer } = await import('../server.mjs');

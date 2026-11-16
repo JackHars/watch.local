@@ -10,10 +10,11 @@ const master = '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=10,RESOLUTION=640x360\nlow.
 const leaf = '#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nseg.ts\n#EXT-X-ENDLIST\n';
 const b = (...args) => Buffer.concat(args.map(x => Buffer.isBuffer(x) ? x : Buffer.from(x)));
 const leb = n => { const out = []; do { let v = n & 127; n >>>= 7; if (n) v |= 128; out.push(v); } while (n); return Buffer.from(out); };
-function wasmFixture() {
+function wasmFixture(keyIndex = 2) {
   const a = Buffer.alloc(32, 11), z = Buffer.alloc(32, 92);
   const body = b([0, 0x41, 0, 0x28, 2, 0, 0x41, 0x80, 6, 0x28, 2, 0, 0x73, 0x21, 6, 0x0b]);
-  const code = b([3], [2, 0, 0x0b], [2, 0, 0x0b], leb(body.length), body);
+  const filler = b([0, 0x02, 0x40, 0x0b, 0x0b]);
+  const code = b(leb(keyIndex + 1), ...Array.from({ length: keyIndex }, () => b(leb(filler.length), filler)), leb(body.length), body);
   const data = b([2, 0, 0x41, 0, 0x0b, 32], a, [0, 0x41, 0x80, 6, 0x0b, 32], z);
   return { wasm: b([0, 97, 115, 109, 1, 0, 0, 0, 10], leb(code.length), code, [11], leb(data.length), data), key: Buffer.alloc(32, 11 ^ 92) };
 }
@@ -36,6 +37,7 @@ test('native crypto matches published vectors and extracts relocated WASM tables
   const cipher = createDecipheriv('chacha20', Buffer.alloc(32), Buffer.alloc(16));
   assert.equal(cipher.update(Buffer.alloc(64)).toString('hex'), '76b8e0ada0f13d90405d6ae55386bd28bdd219b8a08ded1aa836efcc8b770dc7da41597c5157488d7724e03fb8d84a376a43b8f41518a11cc387b669b2ee6586');
   const fixture = wasmFixture(); assert.deepEqual(vidsrcKey(fixture.wasm), fixture.key);
+  const relocated = wasmFixture(3); assert.deepEqual(vidsrcKey(relocated.wasm), relocated.key);
   for (const size of [0, 8, 12, fixture.wasm.length - 1]) assert.throws(() => vidsrcKey(fixture.wasm.subarray(0, size)));
   const nonce = Buffer.alloc(12, 1); nonce[0] = 0xea;
   const plain = Buffer.from('https://cdn.test/movie.m3u8\n');
@@ -153,7 +155,9 @@ function mockProvider(provider, kind, { brokenAthena = false, bait = false } = {
     if (url.hostname === 'punkflix.net') {
       assert.equal(url.pathname, kind === 'series' ? '/tv/550/1/2.json' : '/movie/550.json');
       assert.equal(options.headers.referer, 'https://player.cinezo.live/');
-      return json({ id: 550, type: kind === 'series' ? 'tv' : 'movie', stream: { hls: 'https://cdn.test/master' } });
+      return json({ id: 'bff595746f7e3f24884aff82183688e4', type: kind === 'series' ? 'Episode' : 'Movie',
+        ...(kind === 'series' ? { series: 'Breaking Bad', season: 1, episode: 2 } : {}),
+        title: kind === 'series' ? 'Episode' : 'Movie', stream: { hls: 'https://cdn.test/master' } });
     }
     if (url.hostname === 'vidbolt.st') {
       assert.equal(url.pathname, '/api/resolve');

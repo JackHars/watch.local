@@ -50,29 +50,33 @@ export function vidsrcKey(wasm) {
   }
   const code = cursor(sections.get(10)), bodies = [];
   for (let n = code.leb(); n > 0; n--) bodies.push(code.take(code.leb()));
-  if (!bodies[2]) throw new Error('Missing VidSrc key function');
-  const fn = cursor(bodies[2]);
-  for (let n = fn.leb(); n > 0; n--) { fn.leb(); fn.byte(); }
-  // Parse actual instructions, not byte-pattern matches inside immediates.
-  const ops = [];
-  while (fn.remaining && ops.length < 128) {
-    const op = fn.byte(); let value;
-    if (op === 0x41) value = fn.leb(true);
-    else if ([0x20, 0x21, 0x22, 0x23, 0x24, 0x10, 0x0c, 0x0d].includes(op)) value = fn.leb();
-    else if (op >= 0x28 && op <= 0x3e) { fn.leb(); value = fn.leb(); }
-    else if (![0x0b, 0x0f, 0x1a, 0x1b].includes(op) && !(op >= 0x45 && op <= 0xc4)) {
-      throw new Error('VidSrc key function layout changed');
+  // The site has moved its key routine between WASM function slots. Inspect
+  // instruction boundaries in each body instead of assuming a fixed index.
+  for (const body of bodies) {
+    const fn = cursor(body);
+    try {
+      for (let n = fn.leb(); n > 0; n--) { fn.leb(); fn.byte(); }
+      const ops = [];
+      while (fn.remaining && ops.length < 128) {
+        const op = fn.byte(); let value;
+        if (op === 0x41) value = fn.leb(true);
+        else if ([0x20, 0x21, 0x22, 0x23, 0x24, 0x10, 0x0c, 0x0d].includes(op)) value = fn.leb();
+        else if (op >= 0x28 && op <= 0x3e) { fn.leb(); value = fn.leb(); }
+        else if (![0x0b, 0x0f, 0x1a, 0x1b].includes(op) && !(op >= 0x45 && op <= 0xc4)) break;
+        ops.push({ op, value });
+        const tail = ops.slice(-5);
+        if (tail.map(x => x.op).join() !== [0x41, 0x28, 0x41, 0x28, 0x73].join()) continue;
+        const readTable = address => {
+          const segment = segments.find(s => address >= s.start && address + 32 <= s.start + s.bytes.length);
+          if (!segment) throw new Error('Missing VidSrc key table');
+          return segment.bytes.subarray(address - segment.start, address - segment.start + 32);
+        };
+        const a = readTable(tail[0].value + tail[1].value), b = readTable(tail[2].value + tail[3].value);
+        return Buffer.from(a.map((v, i) => v ^ b[i]));
+      }
+    } catch (error) {
+      if (error.message !== 'Missing VidSrc key table') continue;
     }
-    ops.push({ op, value });
-    const tail = ops.slice(-5);
-    if (tail.map(x => x.op).join() !== [0x41, 0x28, 0x41, 0x28, 0x73].join()) continue;
-    const readTable = address => {
-      const segment = segments.find(s => address >= s.start && address + 32 <= s.start + s.bytes.length);
-      if (!segment) throw new Error('Missing VidSrc key table');
-      return segment.bytes.subarray(address - segment.start, address - segment.start + 32);
-    };
-    const a = readTable(tail[0].value + tail[1].value), b = readTable(tail[2].value + tail[3].value);
-    return Buffer.from(a.map((v, i) => v ^ b[i]));
   }
   throw new Error('VidSrc key tables not found');
 }
