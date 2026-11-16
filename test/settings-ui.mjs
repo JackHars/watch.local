@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSettingsStore } from '../api/settings.mjs';
 import { settingsGroups, settingsOverview, settingsNavigation, settingsPatch } from '../public/settings-ui.mjs';
-import { healthCheckMarkup, healthFailureState, suspiciousHealthDuration } from '../public/provider-health.mjs';
+import { healthCheckMarkup, healthFailureState, suspiciousHealthDuration, healthPlayerMode } from '../public/provider-health.mjs';
 
 test('the settings index and navigation expose only the sections a user can access', () => {
   const viewer = settingsGroups('viewer').flatMap(group => group.items.map(item => item.id));
@@ -38,6 +38,14 @@ test('health check separates missing sources from browser playback failures', ()
   assert.equal(suspiciousHealthDuration(64), true, 'a one-minute error video is not a full episode');
   assert.equal(suspiciousHealthDuration(3482), false);
   assert.equal(suspiciousHealthDuration(Infinity), false);
+});
+
+test('health previews use Hls.js in Chrome even when native HLS is advertised', () => {
+  const video = { canPlayType: () => 'maybe' }, hls = { isSupported: () => true };
+  assert.equal(healthPlayerMode(video, hls, 'Google Inc.'), 'hlsjs');
+  assert.equal(healthPlayerMode(video, hls, 'Apple Computer, Inc.'), 'native');
+  assert.equal(healthPlayerMode(video, { isSupported: () => false }, 'Google Inc.'), 'native');
+  assert.equal(healthPlayerMode({ canPlayType: () => '' }, { isSupported: () => false }, 'Google Inc.'), 'unsupported');
 });
 
 test('separate playback, provider, live and network forms preserve unrelated saved preferences', async () => {

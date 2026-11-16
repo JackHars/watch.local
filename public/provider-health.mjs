@@ -6,6 +6,13 @@ export function healthCheckMarkup(providers, enabled) {
 
 export const suspiciousHealthDuration = seconds => Number.isFinite(seconds) && seconds > 0 && seconds < 600;
 
+export function healthPlayerMode(video, Hls, vendor = '') {
+  const supported = Boolean(Hls?.isSupported?.());
+  if (supported && !/Apple Computer/i.test(vendor)) return 'hlsjs';
+  if (video.canPlayType('application/vnd.apple.mpegurl')) return 'native';
+  return supported ? 'hlsjs' : 'unsupported';
+}
+
 export function healthFailureState(sourceFound, error) {
   if (!sourceFound) return 'failed';
   return error?.healthCode === 'unsupported' ? 'unsupported' : 'preview-failed';
@@ -90,10 +97,11 @@ export function mountHealthCheck(root, { providers, enabled, api, Hls }) {
         video.addEventListener('error', mediaError, { once: true });
         controller.signal.addEventListener('abort', aborted, { once: true });
         timer = setTimeout(() => finish(Error('The video did not load within 50 seconds.')), 50000);
-        if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        const mode = healthPlayerMode(video, Hls, navigator.vendor);
+        if (mode === 'native') {
           video.src = result.url;
           video.play().catch(error => finish(Error(error.name === 'NotAllowedError' ? 'The browser blocked muted preview playback.' : 'The video could not start.')));
-        } else if (Hls?.isSupported()) {
+        } else if (mode === 'hlsjs') {
           const engine = new Hls({ maxBufferLength: 2, maxMaxBufferLength: 5, backBufferLength: 0, manifestLoadingTimeOut: 30000 });
           engines.set(id, engine);
           engine.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(error => {
