@@ -5,166 +5,325 @@
       "id": "cinejoy",
       "name": "Cinejoy",
       "kind": "vod",
-      "origins": ["https://cinejoy.pk", "https://api.wing.st"],
-      "implementation": ["api/platform.mjs", "api/providers.mjs"]
+      "origins": [
+        "https://cinejoy.pk",
+        "https://api.wing.st"
+      ],
+      "implementation": [
+        "api/platform.mjs",
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "atlantic",
       "name": "Atlantic",
       "kind": "vod",
-      "origins": ["https://atlantic.st"],
-      "implementation": ["api/providers.mjs"]
+      "origins": [
+        "https://atlantic.st"
+      ],
+      "implementation": [
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "tvids",
       "name": "Tvids",
       "kind": "vod",
-      "origins": ["https://play.xpass.top"],
-      "implementation": ["api/providers.mjs"]
+      "origins": [
+        "https://play.xpass.top"
+      ],
+      "implementation": [
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "zstream",
       "name": "Zstream",
       "kind": "vod",
-      "origins": ["https://cinecat.eu", "https://api.zstream.mov"],
-      "implementation": ["api/providers.mjs"]
+      "origins": [
+        "https://cinecat.eu",
+        "https://api.zstream.mov"
+      ],
+      "implementation": [
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "vidrift",
       "name": "Vidrift network",
       "kind": "vod",
       "origins": [
-        "https://7movies.ac", "https://7movies.ws", "https://anicine.sbs",
-        "https://cinemove.cc", "https://cinevibe.cc", "https://freekz.to",
-        "https://streamgoblin.cc", "https://thugtv.online", "https://embed.vidrift.net"
+        "https://7movies.ac",
+        "https://7movies.ws",
+        "https://anicine.sbs",
+        "https://cinemove.cc",
+        "https://cinevibe.cc",
+        "https://freekz.to",
+        "https://streamgoblin.cc",
+        "https://thugtv.online",
+        "https://embed.vidrift.net"
       ],
-      "implementation": ["api/providers.mjs"]
+      "implementation": [
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "vidsrc",
       "name": "VidSrc",
       "kind": "vod",
-      "origins": ["https://vidsrc.sh"],
-      "implementation": ["api/providers.mjs"]
+      "origins": [
+        "https://vidsrc.sh"
+      ],
+      "implementation": [
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "reelix",
       "name": "Reelix",
       "kind": "vod",
-      "origins": ["https://reelix.ac", "https://vidcore.io"],
-      "implementation": ["api/reelix.mjs", "api/providers.mjs"]
+      "origins": [
+        "https://reelix.ac",
+        "https://vidcore.io"
+      ],
+      "implementation": [
+        "api/reelix.mjs",
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "movy",
       "name": "Movy",
       "kind": "vod",
-      "origins": ["https://www.movy.sx", "https://api.wecollege.net", "https://db.wecollege.net"],
-      "implementation": ["api/movy.mjs", "api/providers.mjs"]
+      "origins": [
+        "https://www.movy.sx",
+        "https://api.wecollege.net",
+        "https://db.wecollege.net"
+      ],
+      "implementation": [
+        "api/movy.mjs",
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "rive",
       "name": "Rive",
       "kind": "vod",
-      "origins": ["https://www.rivestream.app", "https://scrapper.rivestream.app", "https://recommendation.rivestream.app"],
-      "implementation": ["api/rive.mjs", "api/providers.mjs"]
+      "origins": [
+        "https://www.rivestream.app",
+        "https://scrapper.rivestream.app",
+        "https://recommendation.rivestream.app"
+      ],
+      "implementation": [
+        "api/rive.mjs",
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "corsflix",
       "name": "CorsFlix",
       "kind": "vod",
-      "origins": ["https://watch.corsflix.net", "https://new.vidnest.fun", "https://vidrift.net", "https://embed.vidrift.net"],
-      "implementation": ["api/corsflix.mjs", "api/providers.mjs"]
+      "origins": [
+        "https://watch.corsflix.net",
+        "https://new.vidnest.fun",
+        "https://vidrift.net",
+        "https://embed.vidrift.net"
+      ],
+      "implementation": [
+        "api/corsflix.mjs",
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "meowtv",
       "name": "MeowTV",
       "kind": "vod",
-      "origins": ["https://meowtv.ru", "https://api.meowtv.ru"],
-      "implementation": ["api/meowtv.mjs", "api/providers.mjs"]
+      "origins": [
+        "https://meowtv.ru",
+        "https://api.meowtv.ru"
+      ],
+      "implementation": [
+        "api/meowtv.mjs",
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "flickystream",
       "name": "FlickyStream",
       "kind": "vod",
-      "origins": ["https://flickystream.mov", "https://api.flickystream.mov"],
-      "implementation": ["api/flickystream.mjs", "api/providers.mjs"]
+      "origins": [
+        "https://flickystream.mov",
+        "https://api.flickystream.mov"
+      ],
+      "implementation": [
+        "api/flickystream.mjs",
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "dulo",
       "name": "Dulo",
       "kind": "vod",
-      "origins": ["https://dulo.mov"],
-      "implementation": ["api/dulo.mjs", "api/providers.mjs"]
+      "origins": [
+        "https://dulo.mov"
+      ],
+      "implementation": [
+        "api/dulo.mjs",
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "arrowtv",
       "name": "ArrowTV",
       "kind": "vod",
-      "origins": ["https://arrowtv.net", "https://punkflix.net", "https://media.punkflix.net", "https://player.cinezo.live"],
-      "implementation": ["api/arrowtv.mjs", "api/providers.mjs"]
+      "origins": [
+        "https://arrowtv.net",
+        "https://punkflix.net",
+        "https://media.punkflix.net",
+        "https://player.cinezo.live"
+      ],
+      "implementation": [
+        "api/arrowtv.mjs",
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "ghostflix",
       "name": "Ghostflix",
       "kind": "vod",
-      "origins": ["https://ghostflix.st", "https://vidbolt.st", "https://proxy.vidbolt.xyz"],
-      "implementation": ["api/ghostflix.mjs", "api/providers.mjs"]
+      "origins": [
+        "https://ghostflix.st",
+        "https://vidbolt.st",
+        "https://proxy.vidbolt.xyz"
+      ],
+      "implementation": [
+        "api/ghostflix.mjs",
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "bingebang",
       "name": "BingeBang",
       "kind": "vod",
-      "origins": ["https://bingebang.sx"],
-      "implementation": ["api/bingebang.mjs", "api/bb-crypto.mjs", "api/providers.mjs"]
+      "origins": [
+        "https://bingebang.sx"
+      ],
+      "implementation": [
+        "api/bingebang.mjs",
+        "api/bb-crypto.mjs",
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "moviebite",
       "name": "MovieBite",
       "kind": "vod",
-      "origins": ["https://moviebite.org", "https://img1.hscow.com", "https://img1.hsxcon.com", "https://willowmovies.com"],
-      "implementation": ["api/moviebite.mjs", "api/providers.mjs"]
+      "origins": [
+        "https://moviebite.org",
+        "https://img1.hscow.com",
+        "https://img1.hsxcon.com",
+        "https://willowmovies.com"
+      ],
+      "implementation": [
+        "api/moviebite.mjs",
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "moonflix",
       "name": "Moonflix",
       "kind": "vod",
-      "origins": ["https://moonflix.website", "https://filmu-1.onrender.com", "https://vidzy-0aej.onrender.com", "https://gzip.rousav.tech", "https://img.rousav.tech"],
-      "implementation": ["api/moonflix.mjs", "api/providers.mjs"]
+      "origins": [
+        "https://moonflix.website",
+        "https://filmu-1.onrender.com",
+        "https://vidzy-0aej.onrender.com",
+        "https://gzip.rousav.tech",
+        "https://img.rousav.tech"
+      ],
+      "implementation": [
+        "api/moonflix.mjs",
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "cinema",
       "name": "Cinema (BZ)",
       "kind": "vod",
-      "origins": ["https://cinema.army", "https://cookiebakers23blog.xyz"],
-      "implementation": ["api/cinema.mjs", "api/cinema-crypto.mjs", "api/providers.mjs"]
+      "origins": [
+        "https://cinema.army",
+        "https://cookiebakers23blog.xyz"
+      ],
+      "implementation": [
+        "api/cinema.mjs",
+        "api/cinema-crypto.mjs",
+        "api/providers.mjs"
+      ]
+    },
+    {
+      "id": "zenox",
+      "name": "Zenox",
+      "kind": "vod",
+      "origins": [
+        "https://zenox.lol",
+        "https://banned.hls-m3u8.lol"
+      ],
+      "implementation": [
+        "api/zenox.mjs",
+        "api/providers.mjs"
+      ]
     },
     {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",
-      "origins": ["https://zlive.st", "https://iptv.zlive.st"],
-      "implementation": ["api/zlive.mjs", "api/zlive-resolver.mjs"]
+      "origins": [
+        "https://zlive.st",
+        "https://iptv.zlive.st"
+      ],
+      "implementation": [
+        "api/zlive.mjs",
+        "api/zlive-resolver.mjs"
+      ]
     },
     {
       "id": "timstreams",
       "name": "Tim Streams",
       "kind": "channels",
-      "origins": ["https://tim-streams.com"],
-      "implementation": ["api/timstreams.mjs"]
+      "origins": [
+        "https://tim-streams.com"
+      ],
+      "implementation": [
+        "api/timstreams.mjs"
+      ]
     },
     {
       "id": "strmfree",
       "name": "StreamFree",
       "kind": "sports",
-      "origins": ["https://strmfree.pk", "https://strmfree.st", "https://streamfree.top", "https://strmfree.link"],
-      "implementation": ["api/strmfree.mjs", "api/sports-playback.mjs"]
+      "origins": [
+        "https://strmfree.pk",
+        "https://strmfree.st",
+        "https://streamfree.top",
+        "https://strmfree.link"
+      ],
+      "implementation": [
+        "api/strmfree.mjs",
+        "api/sports-playback.mjs"
+      ]
     },
     {
       "id": "sports-primary",
       "name": "Live sports primary source",
       "kind": "sports",
-      "origins": ["https://streameasto.cx", "https://streamseast.ws", "https://streamking.cx"],
-      "implementation": ["api/sports.mjs", "api/sports-playback.mjs"]
+      "origins": [
+        "https://streameasto.cx",
+        "https://streamseast.ws",
+        "https://streamking.cx"
+      ],
+      "implementation": [
+        "api/sports.mjs",
+        "api/sports-playback.mjs"
+      ]
     }
   ]
 }
