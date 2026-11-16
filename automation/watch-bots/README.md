@@ -11,6 +11,8 @@ Two local Hermes profiles share a `watch-local` Kanban board:
 
 The research queue also records completed investigations (`verified`, `unavailable`, `blocked`, or `skipped`). The `index` command combines those outcomes with the versioned inventory. Watch Providers checks it before investigating a site, and the queue automatically skips integrated hosts before claiming a candidate:
 
+Multiple adapters may name the same shared embed/API host. Queue lookup keeps the first code-backed match for skip decisions; the full index still lists both providers. A shared host must not halt the hourly research turn.
+
 ```bash
 python3 automation/watch-bots/fmhy_queue.py index
 python3 automation/watch-bots/fmhy_queue.py lookup https://cinejoy.pk

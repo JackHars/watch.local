@@ -54,9 +54,11 @@ def integrated_providers():
             raise ValueError("Provider index has an incomplete entry")
         for origin in provider["origins"]:
             host = site_host(origin)
-            if not host or host in hosts:
-                raise ValueError(f"Provider index has an invalid or duplicate host: {origin}")
-            hosts[host] = provider
+            if not host:
+                raise ValueError(f"Provider index has an invalid host: {origin}")
+            # Related adapters can share an embed/API host. The queue only
+            # needs to know that the host is already covered by *some* code.
+            hosts.setdefault(host, provider)
     return data["integrated"], hosts
 
 
