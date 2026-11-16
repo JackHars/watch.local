@@ -75,6 +75,10 @@ Pitfall: `${a-${b}}` inside a template literal parses as arithmetic (`a` minus `
 
 Pitfall: background terminal processes can start in `/` (no workdir). Every `terminal(background=true)` call in this checkout needs an explicit `workdir`, or node scripts die with `MODULE_NOT_FOUND`.
 
+Pitfall: for a provider whose client is an opaque bundled bytecode VM (e.g. a webpack chunk with tape-graph IIFEs, no plain HTTP contract), port the site's **public** bundle verbatim into a dedicated module and re-execute it with `node:vm` in a sandbox (never `eval`), supplying browser stubs that match the site's own build. Keep a staleness guard that re-fetches the live referenced chunk and verifies the decoder's build constants before scanning, failing with an explicit "re-extract" error when the player build changes. Unit-test the **resolver** with an injected fake VM module (identity gates, failover, header rules) plus the pure helpers (e.g. envelope extraction); the real VM is covered only by the live canary — one-shot signed envelopes cannot be fixture-fied.
+
+Pitfall: slicing a multi-KB single-line payload (a verbatim `const EMBEDDED = {...};` line) out of an artifact file: in the artifact layout the constants may sit **above** the payload line, and function-boundary regexes must anchor on a **column-0** closing brace (`line === "}"`) — a trimmed match stops at a nested `if` closer and leaves functions unclosed. After assembling the port, assert the payload marker occurs exactly once in the output; a duplicated section balloons the file by roughly the payload's size.
+
 For a simple JSON-to-HLS VOD source, adapt [the executable adapter example](assets/vod-adapter.mjs). It deliberately injects `loadSources`: implement that function from the verified API contract. The example contains **no real endpoint or credentials**. Channel and sports references contain their own contract examples; do not use the VOD return shape for live sources.
 
 ## Invariants to preserve
