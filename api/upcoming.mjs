@@ -10,26 +10,30 @@ const safeTvMazeUrl = value => {
 
 export function summarizeUpcoming({ tmdb, maze, seasons = [], episodes = [], today = new Date().toISOString().slice(0, 10), tmdbId } = {}) {
   const allSeasons = new Map();
-  for (const item of tmdb?.seasons || []) {
-    const number = seasonNumber(item.season_number);
-    if (number) allSeasons.set(number, { number, date: validDate(item.air_date) ? item.air_date : null, count: item.episode_count || 0, source: 'TMDB' });
-  }
   for (const item of seasons) {
     const number = seasonNumber(item.number);
     if (!number) continue;
-    const previous = allSeasons.get(number);
     const mazeDate = validDate(item.premiereDate) ? item.premiereDate : null;
-    allSeasons.set(number, { number, date: mazeDate || previous?.date || null, count: item.episodeOrder ?? previous?.count ?? 0, source: mazeDate || !previous?.date ? 'TVMaze' : previous.source });
+    allSeasons.set(number, { number, date: mazeDate, count: item.episodeOrder ?? 0, source: 'TVMaze' });
+  }
+  for (const item of tmdb?.seasons || []) {
+    const number = seasonNumber(item.season_number);
+    if (!number) continue;
+    const previous = allSeasons.get(number);
+    const tmdbDate = validDate(item.air_date) ? item.air_date : null;
+    allSeasons.set(number, { number, date: tmdbDate || previous?.date || null, count: item.episode_count || previous?.count || 0, source: tmdbDate || !previous?.date ? 'TMDB' : 'TVMaze' });
   }
   const tmdbNext = tmdb?.next_episode_to_air;
-  const scheduledEpisodes = [...episodes.map(item => ({ ...item, source: 'TVMaze' })), ...(tmdbNext ? [{ season: tmdbNext.season_number, number: tmdbNext.episode_number, name: tmdbNext.name, airdate: tmdbNext.air_date, source: 'TMDB' }] : [])];
+  const scheduledEpisodes = episodes.map(item => ({ ...item, source: 'TVMaze' }));
+  const primaryEpisode = tmdbNext && { season: tmdbNext.season_number, number: tmdbNext.episode_number, name: tmdbNext.name, airdate: tmdbNext.air_date, source: 'TMDB' };
   const airedEpisodes = scheduledEpisodes.filter(item => seasonNumber(item.season) && validDate(item.airdate) && item.airdate <= today);
   const airedSeasons = [...allSeasons.values()].filter(item => item.date && item.date <= today && item.count > 0).map(item => item.number);
   const latestAired = Math.max(0, ...airedSeasons, ...airedEpisodes.map(item => item.season));
   const upcomingSeasons = [...allSeasons.values()].filter(item => item.number > latestAired && (!item.date || item.date > today)).sort((a, b) => a.number - b.number);
   const season = upcomingSeasons[0] || null;
-  const nextEpisode = scheduledEpisodes.filter(item => seasonNumber(item.season) && validDate(item.airdate) && item.airdate > today)
-    .sort((a, b) => a.airdate.localeCompare(b.airdate) || a.season - b.season || (a.number || 0) - (b.number || 0))[0];
+  const nextEpisode = primaryEpisode && seasonNumber(primaryEpisode.season) && validDate(primaryEpisode.airdate) && primaryEpisode.airdate > today ? primaryEpisode :
+    scheduledEpisodes.filter(item => seasonNumber(item.season) && validDate(item.airdate) && item.airdate > today)
+      .sort((a, b) => a.airdate.localeCompare(b.airdate) || a.season - b.season || (a.number || 0) - (b.number || 0))[0];
   if (!season && !nextEpisode) return { season: null, nextEpisode: null };
   const source = season?.source || nextEpisode?.source || 'TMDB';
   return {
@@ -49,30 +53,32 @@ export function createUpcomingService({ catalog = getCatalogData, tmdbRequest = 
     return response.json();
   }
   async function load(id) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    try {
-      const [tmdbResult, idsResult] = await Promise.allSettled([
-        configured() ? tmdbRequest(`/tv/${id}`, { append_to_response: 'external_ids' }, { signal: controller.signal }) : Promise.resolve(null),
-        catalog(`/tv/${id}/external_ids`, {}, controller.signal),
-      ]);
-      const tmdb = tmdbResult.status === 'fulfilled' ? tmdbResult.value : null;
-      const ids = idsResult.status === 'fulfilled' ? idsResult.value : null;
-      const imdb = tmdb?.external_ids?.imdb_id || ids?.imdb_id;
-      let maze = null, seasons = [], episodes = [];
-      if (/^tt\d+$/.test(imdb || '')) {
-        try {
-          maze = await mazeJSON(`/lookup/shows?imdb=${imdb}`);
-          if (Number.isSafeInteger(maze?.id) && maze.id > 0) {
-            const results = await Promise.allSettled([mazeJSON(`/shows/${maze.id}/seasons`), mazeJSON(`/shows/${maze.id}/episodes`)]);
-            seasons = results[0].status === 'fulfilled' && Array.isArray(results[0].value) ? results[0].value : [];
-            episodes = results[1].status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : [];
-          }
-        } catch { /* The TMDB season list can still supply a forecast. */ }
-      }
-      if (!tmdb && !maze) return { season: null, nextEpisode: null };
-      return summarizeUpcoming({ tmdb, maze, seasons, episodes, tmdbId: id, today: new Date(now()).toISOString().slice(0, 10) });
-    } finally { clearTimeout(timeout); }
+    const today = new Date(now()).toISOString().slice(0, 10);
+    let tmdb = null;
+    if (configured()) {
+      try { tmdb = await tmdbRequest(`/tv/${id}`, { append_to_response: 'external_ids' }, { signal: AbortSignal.timeout(6500) }); }
+      catch { /* TVMaze is the backup when TMDB is unavailable. */ }
+    }
+    const primary = summarizeUpcoming({ tmdb, tmdbId: id, today });
+    if (primary.season?.premiereDate) return primary;
+    let imdb = tmdb?.external_ids?.imdb_id;
+    if (!/^tt\d+$/.test(imdb || '')) {
+      try { imdb = (await catalog(`/tv/${id}/external_ids`, {}, AbortSignal.timeout(6500))).imdb_id; }
+      catch { /* Keep any TMDB announcement already found. */ }
+    }
+    let maze = null, seasons = [], episodes = [];
+    if (/^tt\d+$/.test(imdb || '')) {
+      try {
+        maze = await mazeJSON(`/lookup/shows?imdb=${imdb}`);
+        if (Number.isSafeInteger(maze?.id) && maze.id > 0) {
+          const results = await Promise.allSettled([mazeJSON(`/shows/${maze.id}/seasons`), mazeJSON(`/shows/${maze.id}/episodes`)]);
+          seasons = results[0].status === 'fulfilled' && Array.isArray(results[0].value) ? results[0].value : [];
+          episodes = results[1].status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : [];
+        }
+      } catch { /* The TMDB season list can still supply a forecast. */ }
+    }
+    if (!maze) return primary;
+    return summarizeUpcoming({ tmdb, maze, seasons, episodes, tmdbId: id, today });
   }
   return async function upcoming(id) {
     const key = String(id), saved = cache.get(key), time = now();

@@ -359,11 +359,10 @@ body:has(dialog[open]){overflow:hidden}
 .detail-hero.description-expanded{height:auto;max-height:none}
 .detail-hero.description-expanded .description{display:block;-webkit-line-clamp:unset;overflow:visible}
 
-.upcoming-card{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin:8px 0 34px;padding:24px 28px;border:1px solid #79b8ff35;border-radius:18px;background:linear-gradient(125deg,#19325280,#15171c 65%)}
+.upcoming-card{margin:8px 0 34px;padding:24px 28px;border:1px solid #79b8ff35;border-radius:18px;background:linear-gradient(125deg,#19325280,#15171c 65%)}
 .upcoming-label{display:block;margin-bottom:8px;color:#89c0ff;font-size:11px;font-weight:700;letter-spacing:.13em;text-transform:uppercase}
 .upcoming-card h2{margin:0 0 6px;font-size:25px}.upcoming-card p{margin:0;color:#d3d6dd;font-size:14px;line-height:1.5}.upcoming-card .upcoming-episode{margin-top:5px;color:var(--muted);font-size:12px}
-.upcoming-card a{flex:none;color:#89c0ff;font-size:12px;white-space:nowrap}
-@media(max-width:700px){.upcoming-card{display:block;padding:20px;margin:18px 0 30px}.upcoming-card h2{font-size:23px}.upcoming-card a{display:inline-block;margin-top:18px}}
+@media(max-width:700px){.upcoming-card{padding:20px;margin:18px 0 30px}.upcoming-card h2{font-size:23px}}
 
 /* Keep the label and arrow buttons on the same centre line. */
 .rail-controls{align-items:center;flex-shrink:0}

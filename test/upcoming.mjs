@@ -18,8 +18,8 @@ const seasons = [
 test('an announced season without a date is shown without a fabricated premiere', () => {
   const result = summarizeUpcoming({ tmdb, maze, seasons, today, tmdbId: 95396 });
   assert.deepEqual(result.season, { number: 3, premiereDate: null });
-  assert.equal(result.source, 'TVMaze');
-  assert.equal(result.sourceUrl, maze.url);
+  assert.equal(result.source, 'TMDB');
+  assert.equal(result.sourceUrl, 'https://www.themoviedb.org/tv/95396');
   assert.equal(result.nextEpisode, null);
 });
 
@@ -38,7 +38,7 @@ test('future premiere and next episode dates are distinct from an already airing
 test('no future listings produces no announcement, and source URLs are constrained', () => {
   const result = summarizeUpcoming({ tmdb: { seasons: tmdb.seasons.slice(0, 2) }, maze: { url: 'https://evil.example/' }, seasons: seasons.slice(0, 2), today, tmdbId: 95396 });
   assert.deepEqual(result, { season: null, nextEpisode: null });
-  const future = summarizeUpcoming({ tmdb, maze: { url: 'https://evil.example/' }, seasons, today, tmdbId: 95396 });
+  const future = summarizeUpcoming({ maze: { url: 'https://evil.example/' }, seasons, today, tmdbId: 95396 });
   assert.equal(future.sourceUrl, null);
 });
 
@@ -69,4 +69,30 @@ test('TMDB season data remains available when TVMaze is offline', async () => {
   const result = await service(95396);
   assert.deepEqual(result.season, { number: 3, premiereDate: null });
   assert.equal(result.source, 'TMDB');
+});
+
+test('a confirmed TMDB premiere is used without contacting the fallback', async () => {
+  const dated = { ...tmdb, seasons: [...tmdb.seasons.slice(0, 2), { season_number: 3, episode_count: 8, air_date: '2027-02-10' }], external_ids: { imdb_id: 'tt11280740' } };
+  const service = createUpcomingService({ configured: () => true, tmdbRequest: async () => dated,
+    catalog: async () => assert.fail('IMDb lookup is unnecessary'), fetcher: async () => assert.fail('TVMaze should not be contacted'), now: () => Date.parse(today) });
+  const result = await service(95396);
+  assert.deepEqual(result.season, { number: 3, premiereDate: '2027-02-10' });
+  assert.equal(result.source, 'TMDB');
+});
+
+test('TVMaze fills a date only when TMDB has an undated season', async () => {
+  const calls = [];
+  const fetcher = async url => {
+    calls.push(url);
+    if (url.includes('/lookup/shows?')) return new Response(JSON.stringify(maze));
+    if (url.endsWith('/seasons')) return new Response(JSON.stringify([...seasons.slice(0, 2), { number: 3, premiereDate: '2027-01-08', episodeOrder: 8 }]));
+    if (url.endsWith('/episodes')) return new Response(JSON.stringify([]));
+    throw Error('Unexpected request');
+  };
+  const service = createUpcomingService({ configured: () => true, tmdbRequest: async () => ({ ...tmdb, external_ids: { imdb_id: 'tt11280740' } }),
+    catalog: async () => assert.fail('TMDB already supplied IMDb ID'), fetcher, now: () => Date.parse(today) });
+  const result = await service(95396);
+  assert.deepEqual(result.season, { number: 3, premiereDate: '2027-01-08' });
+  assert.equal(result.source, 'TVMaze');
+  assert.equal(calls.length, 3);
 });

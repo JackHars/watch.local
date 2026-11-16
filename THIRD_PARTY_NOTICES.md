@@ -44,3 +44,10 @@ local display, including in IPTV clients. Category and country assignments in
 `api/channel-directory.json` are curated locally with broadcaster identities
 cross-checked against the public channel database. A shared network logo is used
 for some regional or alternate feeds; names and countries distinguish them.
+
+# TV schedule metadata
+
+Upcoming season and episode information uses [TMDB](https://www.themoviedb.org/)
+first. When TMDB has no confirmed date, the app can supplement it with data
+provided by [TVMaze](https://www.tvmaze.com/). No TVMaze data is bundled in the
+repository.
