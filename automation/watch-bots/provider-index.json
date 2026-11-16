@@ -322,6 +322,20 @@
       ]
     },
     {
+      "id": "stellar",
+      "name": "Stellar",
+      "kind": "vod",
+      "origins": [
+        "https://stellar.rip",
+        "https://vidfast.vc"
+      ],
+      "implementation": [
+        "api/stellar.mjs",
+        "api/stellar-vm.mjs",
+        "api/providers.mjs"
+      ]
+    },
+    {
       "id": "zlive",
       "name": "ZLive",
       "kind": "channels",
