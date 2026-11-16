@@ -13,7 +13,7 @@ import { libraryRoute, libraryPage, mountLibraryPage } from './library.mjs';
 import { createLiveSearch } from './search-ui.mjs';
 import { upcomingDetails } from './upcoming.mjs';
 import { settingsGroups, settingsNavigation, settingsOverview, mountSettingsNavigation, settingsPatch } from './settings-ui.mjs';
-import { healthCheckMarkup, mountHealthCheck } from './provider-health.mjs';
+import { healthCheckMarkup, mountHealthCheck, healthPlayerMode } from './provider-health.mjs';
 // Safari can mark a tapped select as focus-visible. Track how focus was
 // reached without blurring controls, blocking selection, or changing the picker.
 document.addEventListener('pointerdown',event=>{
@@ -321,9 +321,9 @@ async function copyValue(id){const input=document.getElementById(id);try{if(navi
 let hls,playController,lastPlayback,playbackProgress,mobileSession;
 function closePlayer(refresh=true){const saved=playbackProgress?.stop()||Promise.resolve();playbackProgress=null;mobileSession?.stop();mobileSession=null;playController?.abort();hls?.destroy();hls=null;const video=$('video',$('#player'));if(video){video.pause();video.removeAttribute('src');video.load();}$('#player').close();$('#player').innerHTML='';if(refresh)saved.then(refreshContinueWatching);return saved;}
 function nativeHls(video,provider){
-  // Chromium advertises native HLS but fails to decode some ZLive TS feeds.
-  // Use the existing transmuxer there; Apple keeps its native fullscreen path.
-  return video.canPlayType('application/vnd.apple.mpegurl')&&(provider!=='zlive'||typeof video.webkitEnterFullscreen==='function'||!window.Hls?.isSupported());
+  // Chromium can advertise native HLS but reject otherwise playable streams.
+  // Keep Apple's native fullscreen player and use Hls.js on Chromium.
+  return healthPlayerMode(video,window.Hls,navigator.vendor)==='native'&&(provider!=='zlive'||typeof video.webkitEnterFullscreen==='function'||!window.Hls?.isSupported());
 }
 function attachHls(video,url,onReady,fail){
   const engine=hls=new Hls({maxBufferLength:30,manifestLoadingTimeOut:180000});
