@@ -340,7 +340,8 @@ function attachHls(video,url,onReady,fail){
 function playOnMobile(data,identity,saved,controller,fresh){
   const vod=['movie','tv'].includes(data.type),query=new URLSearchParams(Object.entries(identity).filter(([,value])=>value!==null));
   const player=mobileSurface=document.createElement('div');player.id='mobile-player';
-  player.innerHTML=`<video controls preload="auto" tabindex="-1" aria-label="Video player"></video><div class="mobile-playback-notice" data-state="loading" hidden><span class="spinner" aria-hidden="true"></span><span class="mobile-playback-message sr-only" role="status" aria-live="polite">Loading video…</span><button class="btn primary small" data-action="open-fullscreen" hidden>${icon('play')}Play video</button><button class="btn ghost small" data-action="retry-play" hidden>Try again</button><button class="icon-btn" data-action="close-player" aria-label="Cancel playback">${icon('close')}</button></div>`;
+  const activity=`<svg viewBox="0 0 32 32" focusable="false">${Array.from({length:12},(_,i)=>`<path d="M16 4v5" transform="rotate(${i*30} 16 16)" style="animation-delay:${((i-12)/12).toFixed(3)}s"/>`).join('')}</svg>`;
+  player.innerHTML=`<video controls preload="auto" tabindex="-1" aria-label="Video player"></video><div class="mobile-playback-notice" data-state="loading" hidden><span class="spinner playback-activity" aria-hidden="true">${activity}</span><span class="mobile-playback-message sr-only" role="status" aria-live="polite">Loading video…</span><button class="btn primary small" data-action="open-fullscreen" hidden>${icon('play')}Play video</button><button class="btn ghost small" data-action="retry-play" hidden>Try again</button><button class="icon-btn" data-action="close-player" aria-label="Cancel playback">${icon('close')}</button></div>`;
   document.body.append(player);
   const video=$('video',player),notice=$('.mobile-playback-notice',player),status=$('.mobile-playback-message',player);
   let noticeTimer;
