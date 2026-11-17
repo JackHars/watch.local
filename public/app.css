@@ -43,6 +43,18 @@ html[data-input=touch] .media-card:focus-visible .card-image{box-shadow:none}
 #player video:fullscreen{width:100%;height:100%;max-height:none;margin:0;aspect-ratio:auto;object-fit:contain;background:#000}
 #player video:-webkit-full-screen{width:100%;height:100%;max-height:none;margin:0;aspect-ratio:auto;object-fit:contain;background:#000}
 
+/* Mobile enters the native player directly; its video has no inline surface. */
+#mobile-player>video{position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none}
+#mobile-player>video:fullscreen{inset:0;width:100%;height:100%;opacity:1;pointer-events:auto;object-fit:contain;background:#000}
+#mobile-player>video:-webkit-full-screen{inset:0;width:100%;height:100%;opacity:1;pointer-events:auto;object-fit:contain;background:#000}
+.mobile-playback-notice{position:fixed;z-index:150;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:14px;width:max-content;max-width:calc(100vw - 40px);padding:8px 10px 8px 20px;border:1px solid #ffffff20;border-radius:28px;background:#1c1c20ed;box-shadow:0 8px 32px #0005;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.mobile-playback-notice .spinner{width:22px;height:22px;margin:0;border-width:2px;flex:none}
+.mobile-playback-notice .icon-btn{width:40px;height:40px;flex:none;border:0;background:none}
+.mobile-playback-message{font-size:14px;line-height:1.5;overflow-wrap:anywhere}
+.mobile-playback-notice[data-state=error],.mobile-playback-notice[data-state=blocked]{flex-wrap:wrap;justify-content:center;padding:16px;border-radius:22px}
+.mobile-playback-notice[data-state=error] .mobile-playback-message,.mobile-playback-notice[data-state=blocked] .mobile-playback-message{flex-basis:100%;text-align:center}
+.mobile-playback-notice[hidden],.mobile-playback-notice [hidden]{display:none}
+
 /* Floating navigation. Desktop retains its centered navigation capsule. */
 .nav a>.icon,.mobile-dock{display:none}
 .topbar{position:fixed;background:none;border:0;transition:transform .24s ease,opacity .2s ease}

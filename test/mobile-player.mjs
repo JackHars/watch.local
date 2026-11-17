@@ -73,3 +73,33 @@ test('native player keeps the playback session during errors and automatic sourc
   f.event(f.video,'playing');f.event(f.video,'webkitbeginfullscreen');f.event(f.video,'webkitendfullscreen');assert.equal(exits,1);
   player.stop();
 });
+
+test('fullscreen entry notifies the page once and metadata retries a pending native presentation', () => {
+  const f=fixture();let entries=0,ready=false;
+  f.video.webkitEnterFullscreen=()=>{f.calls.push(['native-fullscreen']);if(!ready)throw new DOMException('Metadata pending','InvalidStateError');f.event(f.video,'webkitbeginfullscreen');};
+  const player=mobilePlayer(f.video,{document:f.doc,onEnter:()=>entries++});
+  player.start('/episode.m3u8');assert.equal(entries,0);
+  ready=true;f.event(f.video,'loadedmetadata');assert.equal(entries,1);
+  f.event(f.video,'playing');f.event(f.video,'webkitbeginfullscreen');assert.equal(entries,1);
+  player.stop();f.event(f.video,'webkitbeginfullscreen');assert.equal(entries,1);
+});
+
+test('silent fullscreen refusal requests a new gesture, while stopping cancels the prompt', async t => {
+  t.mock.timers.enable({apis:['setTimeout']});
+  const f=fixture();let blocked=0;
+  const player=mobilePlayer(f.video,{document:f.doc,onBlocked:()=>blocked++});
+  player.start('/movie.m3u8');f.event(f.video,'playing');
+  t.mock.timers.tick(799);assert.equal(blocked,0);
+  t.mock.timers.tick(1);assert.equal(blocked,1);
+  player.start();f.event(f.video,'playing');player.stop();
+  t.mock.timers.tick(1000);assert.equal(blocked,1);
+});
+
+test('a rejected play attempt cannot show a stale gesture prompt after a newer attempt or cancellation', async () => {
+  const f=fixture();const rejections=[];let blocked=0;
+  f.video.play=()=>new Promise((resolve,reject)=>rejections.push(reject));
+  const player=mobilePlayer(f.video,{document:f.doc,onBlocked:()=>blocked++});
+  player.start('/first.m3u8');player.start('/fallback.m3u8');
+  rejections[0](new DOMException('Old request','NotAllowedError'));await Promise.resolve();assert.equal(blocked,0);
+  player.stop();rejections[1](new DOMException('Cancelled','NotAllowedError'));await Promise.resolve();assert.equal(blocked,0);
+});
