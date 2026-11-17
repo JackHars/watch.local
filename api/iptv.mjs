@@ -5,7 +5,7 @@ import { pipeline } from 'node:stream/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { settingsStore, dataDirectory as settingsDirectory, activeUser } from './settings.mjs';
-import { requireSession } from './sessions.mjs';
+import { requireSession, authenticateRequest } from './sessions.mjs';
 import { getCatalogData, resolveStream, fetchUpstream } from './platform.mjs';
 import { collectCatalog, catalogPageLimit, MAX_CATALOG_PAGES } from './catalog.mjs';
 import { metadataService } from './metadata.mjs';
@@ -42,6 +42,10 @@ let refreshProgress;
 let writeQueue = Promise.resolve();
 const seriesCache = new Map();
 const liveExpiries = new Map();
+const mediaContentType = type => {
+  const mime = type.split(';', 1)[0].trim().toLowerCase();
+  return /^(?:audio|video)\/[a-z0-9.+-]+$/.test(mime) || ['text/vtt', 'application/mp4'].includes(mime) ? mime : 'application/octet-stream';
+};
 
 async function readJSON(name, fallback) {
   try { return JSON.parse(await readFile(new URL(name, dataDirectory), 'utf8')); }
@@ -134,8 +138,8 @@ function origin(req) {
 function streamURL(base, kind, id) {
   return `${base}/${kind}/${encodeURIComponent(currentUser().username)}/${encodeURIComponent(currentUser().password)}/${id}.m3u8`;
 }
-function authorized(username, password) { const user = settingsStore.authenticate(username, password); if (user && userContext.getStore()) userContext.getStore().user = user; return user; }
-function requireAuth(params) { if (!authorized(params.get('username'), params.get('password'))) throw new HttpError(401, 'Invalid IPTV username or password.'); }
+function authorized(req, username, password) { const user = authenticateRequest(req, username, password); if (userContext.getStore()) userContext.getStore().user = user; return user; }
+function requireAuth(req, params) { authorized(req, params.get('username'), params.get('password')); }
 function reply(req, res, status, value, type = 'application/json; charset=utf-8') {
   if (res.destroyed) return;
   const body = Buffer.from(typeof value === 'string' ? value : JSON.stringify(value));
@@ -296,7 +300,7 @@ async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders, l
     if (!response.ok) { await response.body?.cancel(); throw new HttpError(502, `Video host returned HTTP ${response.status}.`); }
     const type = response.headers.get('content-type') || 'application/octet-stream';
     if (req.method === 'HEAD' && !decorate) {
-      const result = { 'Content-Type': /mpegurl/i.test(type) || /\.m3u8(?:\?|$)/i.test(upstream) ? 'application/vnd.apple.mpegurl' : /\/segment\.ts(?:\?|$)/i.test(req.url) ? 'video/mp2t' : type, 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' };
+      const result = { 'Content-Type': /mpegurl/i.test(type) || /\.m3u8(?:\?|$)/i.test(upstream) ? 'application/vnd.apple.mpegurl' : /\/segment\.ts(?:\?|$)/i.test(req.url) ? 'video/mp2t' : mediaContentType(type), 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' };
       res.writeHead(response.status, result); return res.end();
     }
     reader = response.body.getReader();
@@ -320,7 +324,7 @@ async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders, l
       return sendPlaylist(rawPlaylist, sourceURL);
     }
     const mediaType = first.value?.[0] === 0x47 ? 'video/mp2t'
-      : first.value && /^(ftyp|styp|moof|moov)$/.test(Buffer.from(first.value.subarray(4, 8)).toString()) ? 'video/mp4' : type;
+      : first.value && /^(ftyp|styp|moof|moov)$/.test(Buffer.from(first.value.subarray(4, 8)).toString()) ? 'video/mp4' : mediaContentType(type);
     const responseHeaders = { 'Content-Type': mediaType, 'Cache-Control': 'private, max-age=60', 'Access-Control-Allow-Origin': '*' };
     for (const key of ['content-range', 'accept-ranges', 'etag', 'last-modified']) if (response.headers.has(key)) responseHeaders[key] = response.headers.get(key);
     if (!response.headers.has('content-encoding') && response.headers.has('content-length')) responseHeaders['Content-Length'] = response.headers.get('content-length');
@@ -510,7 +514,7 @@ async function handleIPTVRequest(req, res) {
     }
     const stream = path.match(/^\/(movie|series|live)\/([^/]+)\/([^/]+)\/(\d+)\.([a-z0-9]+)$/i);
     if (stream) {
-      if (!authorized(decodeURIComponent(stream[2]), decodeURIComponent(stream[3]))) throw new HttpError(401, 'Invalid IPTV username or password.');
+      authorized(req, decodeURIComponent(stream[2]), decodeURIComponent(stream[3]));
       if (stream[5] !== 'm3u8') throw new HttpError(415, 'Select HLS / m3u8 as the stream format in your player.');
       if (stream[1] === 'live') {
         const live = await liveTV.resolve(idNumber(stream[4]));
@@ -519,7 +523,7 @@ async function handleIPTVRequest(req, res) {
       }
       await serveTitle(req, res, stream[1], stream[4], params, base); return true;
     }
-    requireAuth(params);
+    requireAuth(req, params);
     if (path === '/player_api.php') {
       const result = await playerAPI(params, base);
       reply(req, res, 200, result);
@@ -529,7 +533,7 @@ async function handleIPTVRequest(req, res) {
     else throw new HttpError(404, 'IPTV route not found.');
   } catch (error) {
     if (res.headersSent) res.destroy();
-    else { if (error.status === 503) res.setHeader('Retry-After', '30'); reply(req, res, error.status || 502, { error: error.message, ...(error.status === 401 ? { user_info: { auth: 0, status: 'Disabled' } } : {}) }); }
+    else { if ([429, 503].includes(error.status)) res.setHeader('Retry-After', error.status === 429 ? '60' : '30'); reply(req, res, error.status || 502, { error: error.message, ...(error.status === 401 ? { user_info: { auth: 0, status: 'Disabled' } } : {}) }); }
   }
   return true;
 }

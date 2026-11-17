@@ -6,8 +6,8 @@ import { join, relative, resolve } from 'node:path';
 // tripwire, not a sandbox: new provider code must not evaluate site JavaScript
 // in the Node server. Updating these pins requires deliberate security review.
 const pinned = new Map([
-  ['api/stellar-vm.mjs', '8b66d64fd2078fb18821cee3d7a79b34017e3e6c24d8a59181d294ab5f19a71e'],
-  ['api/zlive-resolver.mjs', 'dd0cd2793aba02ff7f20223bddfdd71dd013282d7fac887d8904cc4b5d7eafd3'],
+  ['api/stellar-vm.mjs', '9512464bd1d12316c7a7bd56dc45240a7568e89c00e7a8e497613f1c44a52505'],
+  ['api/zlive-resolver.mjs', '2b9ff14ac5dd531f78612e364030fb4ccf4f2bdee3f57df886d04d31bb9e512b'],
   ['api/vendor/zlive-resolver.cjs', 'e021707d162b8c359eaa1ff944fb862cee61a2d130e9e410106fe0dfcfc2f07d'],
 ]);
 const root = resolve(import.meta.dirname, '..');
@@ -27,12 +27,20 @@ const failures = [];
 for (const path of files) {
   const rel = relative(root, path);
   const bytes = readFileSync(path);
+  const code = bytes.toString('utf8');
+  // Keep new provider ports on the guarded transport. The vendored signer is
+  // pinned below and receives a restricted fetch through its wrapper.
+  if (rel !== 'api/public-fetch.mjs' && !rel.startsWith('api/vendor/')) {
+    const executable = code.split('\n').filter(line => !/^\s*(?:\/\/|\*)/.test(line)).join('\n');
+    if (/\bglobalThis\.fetch\b/.test(executable) || (/\bfetch\s*\(|=\s*fetch\s*[,}]/.test(executable) && !/import\s*\{[^}]*publicFetch\s+as\s+fetch[^}]*\}\s*from\s*['"]\.\/public-fetch\.mjs['"]/.test(code))) {
+      failures.push(`${rel}: outbound provider requests must use publicFetch`);
+    }
+  }
   if (pinned.has(rel)) {
     const digest = createHash('sha256').update(bytes).digest('hex');
     if (digest !== pinned.get(rel)) failures.push(`${rel}: reviewed bundled code changed`);
     continue;
   }
-  const code = bytes.toString('utf8');
   const executableLines = code.split('\n').filter(line => !/^\s*(?:\/\/|\*)/.test(line)).join('\n');
   if (risky.test(executableLines)) failures.push(`${rel}: dynamic code execution needs security review`);
 }

@@ -1,3 +1,4 @@
+import { publicFetch as fetch } from './public-fetch.mjs';
 import { normalizeLiveSearch } from '../public/live-model.mjs';
 import { probeSportsStream } from './sports-probe.mjs';
 import { decodeZliveMedia, ZLIVE_MEDIA_LIMIT } from './zlive-media.mjs';

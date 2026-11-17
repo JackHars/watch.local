@@ -1,3 +1,4 @@
+import { publicFetch as fetch, readPublicBody } from './public-fetch.mjs';
 // Metadata, playback-provider resolution, and the programmatic media API.
 // Embedded by ../server.mjs; owns no listener or Docker connection.
 
@@ -41,7 +42,7 @@ async function loadWasm() {
   if (!buf) {
     const r = await fetch(BASE + '/crush.wasm', { headers: HDRS });
     if (!r.ok) throw new Error('WASM download HTTP ' + r.status);
-    buf = Buffer.from(await r.arrayBuffer());
+    buf = await readPublicBody(r);
     try { fs.writeFileSync(cands[0], buf); } catch { /* keep in memory */ }
   }
   const { instance } = await WebAssembly.instantiate(new Uint8Array(buf), {});
@@ -84,7 +85,7 @@ async function lumenGet(reqPath, params, signal) {
     signal: AbortSignal.any([AbortSignal.timeout(8000), ...(signal ? [signal] : [])]),
   });
   if (!r.ok) throw new Error(`lumen-gate HTTP ${r.status}`);
-  const respBytes = new Uint8Array(await r.arrayBuffer());
+  const respBytes = new Uint8Array(await readPublicBody(r));
   if (respBytes.length < 12 + 16) throw new Error('response too short: ' + respBytes.length);
   const key = await crypto.subtle.importKey('raw', out.responseKey, 'AES-GCM', false, ['decrypt']);
   const iv = respBytes.subarray(0, 12);
@@ -171,7 +172,7 @@ async function getServers() {
   if (hit) return hit;
   const r = await fetch(BASE + '/servers', { headers: HDRS, signal: AbortSignal.timeout(30_000) });
   if (!r.ok) throw new Error('servers HTTP ' + r.status);
-  const servers = (await r.json()).servers || [];
+  const servers = JSON.parse((await readPublicBody(r)).toString('utf8')).servers || [];
   servers_cache.set('servers', servers);
   return servers;
 }
@@ -409,7 +410,7 @@ export async function handleApiRequest(req, res) {
         url.searchParams.get('server'), false, resolutionOptions);
       const upstream = await fetchUpstream(r.master, 30000, { headers: r.headers, signal: controller.signal });
       if (!upstream.ok) return sendErr(res, 502, 'master fetch HTTP ' + upstream.status);
-      return sendM3u8(res, rewritePlaylist(await upstream.text(), upstream.url || r.master, r.headers));
+      return sendM3u8(res, rewritePlaylist((await readPublicBody(upstream, 4 * 1024 * 1024)).toString('utf8'), upstream.url || r.master, r.headers));
     }
 
     if (p === '/watch') {
@@ -429,7 +430,7 @@ export async function handleApiRequest(req, res) {
       if (!media) return sendErr(res, 502, 'no playable variant (asked for ' + v + ')');
       const r2 = await fetchUpstream(media, 30_000, { headers: r.headers, signal: controller.signal });
       if (!r2.ok) return sendErr(res, 502, 'variant fetch HTTP ' + r2.status);
-      return sendM3u8(res, rewritePlaylist(await r2.text(), r2.url || media, r.headers));
+      return sendM3u8(res, rewritePlaylist((await readPublicBody(r2, 4 * 1024 * 1024)).toString('utf8'), r2.url || media, r.headers));
     }
 
     if (p === '/proxy') {
@@ -439,9 +440,9 @@ export async function handleApiRequest(req, res) {
       try { headers = q('h') ? mediaHeaders(JSON.parse(Buffer.from(q('h'), 'base64url').toString())) : {}; }
       catch { return sendErr(res, 400, 'Invalid proxy headers'); }
       const r = await fetchUpstream(u, 120_000, { headers, signal: controller.signal });
-      if (!r.ok) return sendErr(res, 502, 'upstream HTTP ' + r.status + ' for ' + u);
+      if (!r.ok) { await r.body?.cancel(); return sendErr(res, 502, 'upstream HTTP ' + r.status); }
       const ctype = r.headers.get('content-type') || '';
-      const data = Buffer.from(await r.arrayBuffer());
+      const data = await readPublicBody(r, 32 * 1024 * 1024);
       const head = data.subarray(0, 64).toString('utf8').trimStart();
       if (head.startsWith('#EXTM3U') || ctype.includes('xml') || ctype.includes('text')) {
         const text = data.toString('utf8');

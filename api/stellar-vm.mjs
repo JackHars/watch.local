@@ -1,9 +1,10 @@
+import { publicFetch as fetch, readPublicBody } from './public-fetch.mjs';
 // Stellar / vidfast — bytecode-VM player client (ported verbatim into the
 // watch.local checkout). The EMBEDDED object is a byte-for-byte copy of the
 // player's public webpack chunk 612 (build fingerprint 842be8cc1d97f11b) from
 // vidfast.vc: the 63-module closure (crypto 3018, encoder 9849, Buffer 5376)
 // plus the two tape-graph VM IIFEs (A: source scanner, R: media decoder).
-// It is re-executed in-process via node:vm in a sandbox (never eval), with
+// This pinned repository code is re-executed in-process via node:vm, with
 // browser stubs matching the site's own build, so the site's own client
 // crypto performs the scan/decode exactly as a browser would.
 //
@@ -12,6 +13,8 @@
 // VM-R -> signed fMP4 HLS master on the media CDN (keyless; ftyp init +
 // moof segments). If the player build changes, checkPlayerBuild() refuses to
 // scan until this file is re-extracted.
+// node:vm is not a security boundary. Never replace these pinned programs with
+// downloaded JavaScript; remote responses must remain data, not executable code.
 
 
 // Verbatim public-chunk payload (do not edit; re-extract per build).
@@ -51,9 +54,9 @@ async function get(url, { as = "text", headers = {}, ua = UA, timeoutMs = 30_000
     });
     if (as === "bytes") {
       if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
-      return Buffer.from(await res.arrayBuffer());
+      return await readPublicBody(res);
     }
-    const body = await res.text();
+    const body = (await readPublicBody(res)).toString('utf8');
     if (!res.ok) throw new Error(`HTTP ${res.status} ${url}: ${body.slice(0, 200)}`);
     return body;
   } finally {
@@ -143,7 +146,7 @@ function makeVfetch() {
       for (const [k, v] of Object.entries(init.headers)) headers[k] = v;
     }
     const res = await fetch(u, { ...init, headers, redirect: "follow" });
-    const buf = Buffer.from(await res.arrayBuffer());
+    const buf = await readPublicBody(res);
     const text = buf.toString("utf8");
     return new Proxy(res, {
       get(t, k) {

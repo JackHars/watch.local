@@ -64,12 +64,17 @@ export function signOut(req, res) {
   const token = /(?:^|;\s*)watchlocal_session=([a-zA-Z0-9_-]+)/.exec(req.headers.cookie || '')?.[1];
   sessions.delete(token); res.setHeader('Set-Cookie', 'watchlocal_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
 }
-export function login(req, res, username, password) {
+export function authenticateRequest(req, username, password) {
   const key = req.socket.remoteAddress || 'local'; const now = Date.now();
   let entry = attempts.get(key);
   if (!entry || entry.expires < now) entry = { count: 0, expires: now + 60000 };
   if (entry.count >= 15) throw problem(429, 'Too many attempts. Try again in a minute.');
   const user = settingsStore.authenticate(username, password);
   if (!user) { entry.count++; attempts.set(key, entry); if (attempts.size > 1000) attempts.delete(attempts.keys().next().value); throw problem(401, 'The username or password is incorrect, or the account is inactive.'); }
-  attempts.delete(key); issueSession(res, user); return user;
+  // A known password must not reset the budget for guessing other accounts.
+  return user;
+}
+export function login(req, res, username, password) {
+  const user = authenticateRequest(req, username, password);
+  issueSession(res, user); return user;
 }

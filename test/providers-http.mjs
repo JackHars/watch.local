@@ -5,6 +5,7 @@ import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { localUpstream } from './public-upstream.mjs';
 
 // Network fixtures exercise the real HTTP routes, resolver, signed relay and player headers.
 test('movie playback and legacy API relay keep provider headers and reuse validated HLS playlists', async () => {
@@ -42,11 +43,12 @@ test('movie playback and legacy API relay keep provider headers and reuse valida
     res.writeHead(404); res.end('Unexpected fixture path');
   });
   upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');
-  const remote = `http://127.0.0.1:${upstream.address().port}`;
+  const fixture = localUpstream(upstream, fetchOriginal), remote = fixture.origin;
   let server, apiCookie;
   try {
     globalThis.fetch = async (url, options) => {
       const u = new URL(url);
+      if (u.origin === remote) return fixture.fetch(url, options);
       if (u.hostname === '127.0.0.1') return fetchOriginal(url, apiCookie && u.port === String(server?.address()?.port) ? {...options,headers:{...options?.headers,cookie:apiCookie}} : options);
       if (u.hostname === 'api.zstream.mov') {
         const body = JSON.parse(options.body);

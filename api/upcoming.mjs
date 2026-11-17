@@ -1,3 +1,4 @@
+import { publicFetch as fetch, readPublicBody } from './public-fetch.mjs';
 import { getCatalogData } from './platform.mjs';
 import { requestTMDB, tmdbConfigured } from './tmdb.mjs';
 import { fetchProductionReport } from './production-report.mjs';
@@ -51,7 +52,7 @@ export function createUpcomingService({ catalog = getCatalogData, tmdbRequest = 
   async function mazeJSON(path) {
     const response = await fetcher(`https://api.tvmaze.com${path}`, { headers: { accept: 'application/json', 'user-agent': 'watch.local' }, signal: AbortSignal.timeout(6500), redirect: 'follow' });
     if (!response.ok) throw Error(`TVMaze HTTP ${response.status}`);
-    return response.json();
+    return JSON.parse((await readPublicBody(response)).toString('utf8'));
   }
   async function withProduction(summary, tmdb, maze) {
     const title = tmdb?.name || maze?.name;

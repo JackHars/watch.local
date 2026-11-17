@@ -1,3 +1,4 @@
+import { publicFetch as fetch } from './public-fetch.mjs';
 // Movie/episode provider integration. Ported from Red Hermes' 2026-10-25 work.
 import { createHash, createDecipheriv } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';

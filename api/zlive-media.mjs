@@ -1,3 +1,4 @@
+import { publicFetch as fetch } from './public-fetch.mjs';
 import { gunzip, inflate } from 'node:zlib';
 import { promisify } from 'node:util';
 

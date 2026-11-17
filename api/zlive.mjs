@@ -1,3 +1,4 @@
+import { publicFetch as fetch } from './public-fetch.mjs';
 import { resolveZlive, zliveHeaders, zliveOrigin } from './zlive-resolver.mjs';
 import { createChannelProvider } from './channel-provider.mjs';
 

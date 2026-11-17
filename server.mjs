@@ -43,6 +43,9 @@ export function createServer({ onRequest, mode = 'combined', network } = {}) {
     }
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
+    // Relayed provider content must never become an active document on our
+    // authenticated origin. The app's own static files replace this policy.
+    res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
     try {
       const request = new URL(req.url, 'http://local');
       const listener = typeof mode === 'function' ? mode() : mode;
@@ -70,6 +73,7 @@ export function createServer({ onRequest, mode = 'combined', network } = {}) {
       }
       return json(res, 404, { error: 'Not found.' });
     } catch (error) {
+      if (error.status === 429 && !res.headersSent) res.setHeader('Retry-After', '60');
       if (!res.headersSent) json(res, error.status || 500, { error: error.message });
       else res.destroy();
     }

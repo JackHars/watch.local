@@ -1,3 +1,4 @@
+import { publicFetch as fetch } from './public-fetch.mjs';
 import { highestQualityPlaylist } from './hls-quality.mjs';
 
 const fail = message => Object.assign(new Error(message), { status: 502 });

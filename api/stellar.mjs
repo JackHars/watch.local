@@ -39,8 +39,8 @@
 //   build check verifies the live 612 chunk still carries the decoder
 //   constants) and says to re-extract the port.
 //
-// The VM payload is re-executed in-process via node:vm in a sandbox
-// (never eval) — see api/stellar-vm.mjs for the port. Site content stays
+// The pinned VM payload is re-executed in-process via node:vm, which is not
+// a security boundary — see api/stellar-vm.mjs for the port. Site content stays
 // untrusted data: no credentials, cookies, or persistent signed URLs are
 // retained; the signed media URL is used immediately and dropped.
 import {

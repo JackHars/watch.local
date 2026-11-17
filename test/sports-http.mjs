@@ -5,6 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
+import { localUpstream } from './public-upstream.mjs';
 
 test('sports Xtream import, EPG, live M3U, auth and live HLS proxy preserve quality/headers/ranges', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'cinejoy-sports-http-'));
@@ -22,7 +23,8 @@ test('sports Xtream import, EPG, live M3U, auth and live HLS proxy preserve qual
     res.writeHead(404); res.end();
   });
   upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');
-  const remote = `http://127.0.0.1:${upstream.address().port}`;
+  const originalFetch = globalThis.fetch, fixture = localUpstream(upstream), remote = fixture.origin;
+  globalThis.fetch = fixture.fetch;
   const now = Math.floor(Date.now() / 1000);
   const event = { host: 'sports.test', sport: 'nba', slug: 'nba/2026-10-22/test-match', title: 'Test Match & Teams', starts_at: now - 60, ends_at: now + 3600, has_payload: true, stream_url: remote + '/master.m3u8', pageURL: referer, icon:'https://r2.thesportsdb.com/images/media/event/thumb/match.jpg' };
   const source = { async list(sport) { return { events: sport === 'nba' ? [event, { ...event, slug: 'nba/2026-10-22/upcoming-match', title: 'Upcoming Match', has_payload: false, stream_url: null, starts_at: now + 1800 }] : [], errors: [] }; }, async resolve(e) { return e; }, async hls(e) { return { url: e.stream_url, headers: { referer, origin } }; } };
@@ -64,6 +66,7 @@ test('sports Xtream import, EPG, live M3U, auth and live HLS proxy preserve qual
     assert.ok(requests.some(request => request.target.startsWith('/live/[login]/')));
     assert.ok(requests.every(request => !request.target.includes(settings.password)));
   } finally {
+    globalThis.fetch = originalFetch;
     server?.closeAllConnections(); if (server) await new Promise(resolve => server.close(resolve));
     upstream.closeAllConnections(); await new Promise(resolve => upstream.close(resolve));
     await rm(directory, { recursive: true, force: true });

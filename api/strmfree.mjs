@@ -1,3 +1,4 @@
+import { publicFetch as fetch } from './public-fetch.mjs';
 // Native port of the Hermes Strmfree API. No dependency on the developer's
 // container, local port 8095, saved signatures, cookies or browser scripts.
 import { isIP } from 'node:net';

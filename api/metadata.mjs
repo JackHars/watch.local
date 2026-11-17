@@ -1,3 +1,4 @@
+import { publicFetch as fetch, readPublicBody } from './public-fetch.mjs';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -114,7 +115,7 @@ export function createMetadataService({ directory, fetcher = (...args) => fetch(
         await response.body?.cancel();
         throw Object.assign(problem(502, `Catalog source HTTP ${response.status}.`), { upstreamStatus: response.status, retryAfterMs: Math.min(60000, Math.max(1000, retryMs || 10000)) });
       }
-      return await response.json();
+      return JSON.parse((await readPublicBody(response)).toString('utf8'));
     } catch (error) {
       signal?.throwIfAborted();
       throw Object.assign(problem(502, error.upstreamStatus ? `Catalog source HTTP ${error.upstreamStatus}.` : 'Could not read the upstream catalog.'), { upstreamStatus: error.upstreamStatus || 503, retryAfterMs: error.retryAfterMs || 10000 });

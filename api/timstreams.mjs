@@ -1,3 +1,4 @@
+import { publicFetch as fetch } from './public-fetch.mjs';
 import { isIP } from 'node:net';
 import { createChannelProvider } from './channel-provider.mjs';
 import { probeSportsStream } from './sports-probe.mjs';

@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { once } from 'node:events';
 import { channel as fixtureChannel, wrappedVideo, video } from './zlive-fixtures.mjs';
 import { zliveHeaders } from '../api/zlive-resolver.mjs';
+import { localUpstream } from './public-upstream.mjs';
 
 test('ZLive and sports share browser/native/Xtream/M3U/EPG routes, decoding only channel video', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'watchlocal-live-http-'));
@@ -26,7 +27,8 @@ test('ZLive and sports share browser/native/Xtream/M3U/EPG routes, decoding only
     res.writeHead(404); res.end();
   });
   upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');
-  const remote = `http://127.0.0.1:${upstream.address().port}`;
+  const originalFetch = globalThis.fetch, fixture = localUpstream(upstream), remote = fixture.origin;
+  globalThis.fetch = fixture.fetch;
   const event = { host: 'sports.test', sport: 'nba', slug: 'nba/2026-10-22/test-match', title: 'Fixture Game', starts_at: now - 60, ends_at: now + 3600, has_payload: true, stream_url: remote + '/master.m3u8', pageURL: 'https://zlive.st/' };
   const sportsSource = { async list(sport) { return { events: sport === 'nba' ? [event] : [], errors: [] }; }, async resolve(e) { return e; }, async hls(e) { return { url: e.stream_url, headers: zliveHeaders }; } };
   const zliveSource = {
@@ -105,6 +107,7 @@ test('ZLive and sports share browser/native/Xtream/M3U/EPG routes, decoding only
     assert.equal((await fetch(sport.direct_source)).status, 403);
     assert.ok(requests.every(r => !r.target.includes(settings.password)));
   } finally {
+    globalThis.fetch = originalFetch;
     server?.closeAllConnections(); if (server) await new Promise(resolve => server.close(resolve));
     upstream.closeAllConnections(); await new Promise(resolve => upstream.close(resolve));
     await rm(directory, { recursive: true, force: true });

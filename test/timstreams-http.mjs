@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { video, wrappedVideo } from './zlive-fixtures.mjs';
+import { localUpstream } from './public-upstream.mjs';
 
 test('one channel card uses Tim Streams when primary video fails, with native/Xtream relays and independent settings', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'watchlocal-timstreams-http-'));
@@ -26,7 +27,8 @@ test('one channel card uses Tim Streams when primary video fails, with native/Xt
     res.setHeader('Content-Type', 'video/mp2t'); return res.end(video);
   });
   upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');
-  const remote = `http://127.0.0.1:${upstream.address().port}`;
+  const originalFetch = globalThis.fetch, fixture = localUpstream(upstream), remote = fixture.origin;
+  globalThis.fetch = fixture.fetch;
   const channel = { key: 'auto-cnn', name: 'CNN', group: 'Other', live: true, sources: ['primary'] };
   try {
     await initializeIPTV({ sportsDirectory: directory,
@@ -77,6 +79,7 @@ test('one channel card uses Tim Streams when primary video fails, with native/Xt
     const onlyTim = (await fetch(base + '/ui/live').then(r => r.json())).items;
     assert.equal(onlyTim.length, 2); assert.equal(onlyTim.find(r => r.title === 'CNN').stream_id, tim.stream_id);
   } finally {
+    globalThis.fetch = originalFetch;
     server?.closeAllConnections(); if (server) await new Promise(resolve => server.close(resolve));
     upstream.closeAllConnections(); await new Promise(resolve => upstream.close(resolve));
     await rm(directory, { recursive: true, force: true });

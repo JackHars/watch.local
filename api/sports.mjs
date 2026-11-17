@@ -1,3 +1,4 @@
+import { publicFetch as fetch } from './public-fetch.mjs';
 // Port of /workspace/sports/sports_api.py, inspected in hermes-a6b133b6.
 // Runs inside the LAN service; Docker and a second API listener are not needed.
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';

@@ -1,3 +1,4 @@
+import { publicFetch as fetch } from './public-fetch.mjs';
 import { readFile } from 'node:fs/promises';
 import { webcrypto } from 'node:crypto';
 import { createContext, Script } from 'node:vm';

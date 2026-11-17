@@ -1,3 +1,4 @@
+import { publicFetch as fetch, readPublicBody } from './public-fetch.mjs';
 import { settingsStore, problem } from './settings.mjs';
 
 const API = 'https://api.themoviedb.org/3';
@@ -20,14 +21,14 @@ export async function requestTMDB(path, extra = {}, { credential = requireTMDBCr
   else headers.authorization = `Bearer ${credential}`;
   let response;
   try {
-    response = await fetch(`${API}${path}?${params}`, { headers, signal: AbortSignal.any([AbortSignal.timeout(validating ? 15000 : 30000), ...(signal ? [signal] : [])]) });
+    response = await fetch(`${API}${path}?${params}`, { headers, redirect: 'error', signal: AbortSignal.any([AbortSignal.timeout(validating ? 15000 : 30000), ...(signal ? [signal] : [])]) });
   } catch {
     signal?.throwIfAborted();
     throw problem(503, 'Could not reach TMDB. Check your connection and try again.');
   }
   if ([401, 403].includes(response.status)) throw problem(validating ? 400 : 503, 'TMDB rejected this credential. Check your API key or Read Access Token in Settings → Metadata.');
   if (!response.ok) throw problem(503, `TMDB is unavailable (HTTP ${response.status}). Try again later.`);
-  try { return await response.json(); }
+  try { return JSON.parse((await readPublicBody(response)).toString('utf8')); }
   catch { throw problem(502, 'TMDB returned an unreadable response. Try again later.'); }
 }
 export async function validateTMDBCredential(value) {
