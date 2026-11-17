@@ -92,6 +92,16 @@ export function createWatchProgressStore(directory) {
       const entry = state.users[userId].progress[profileId]?.[key];
       return entry ? publicProgress(entry) : null;
     },
+    async episodes(userId, profileId, input) {
+      const { id, season } = watchIdentity({ type: 'tv', id: input.id, season: input.season, episode: 1 });
+      await initialize(); await queue;
+      requireProfile(userId, profileId);
+      // The episode grid needs every saved episode, including finished ones.
+      // list() intentionally collapses each show to one Continue Watching card.
+      return Object.values(state.users[userId].progress[profileId] || {})
+        .filter(entry => entry.type === 'tv' && entry.id === id && entry.season === season)
+        .sort((a, b) => a.episode - b.episode).map(publicProgress);
+    },
     async list(userId, profileId, { includeCompletedSeries = false, includeCompleted = false } = {}) {
       await initialize(); await queue;
       requireProfile(userId, profileId);

@@ -1,5 +1,6 @@
 import { createNavigation } from './navigation.mjs';
 import { trackPlayback, formatTimeLeft } from './watch-progress.mjs';
+import { mountEpisodeGrid } from './episodes.mjs';
 import { mobilePlaybackDevice, mobilePlaybackError, mobilePlayer } from './mobile-player.mjs';
 import { profileAvatar, profilePicker, openProfileDialog, rememberedProfileId, rememberProfile } from './profiles.mjs';
 import { homeCategories, featuredItems, mountHeroCarousel } from './home.mjs';
@@ -30,7 +31,9 @@ const icon = name => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><
 const state = { user:null, profile:null, profiles:[], lanAccess:false, name:'watch.local', route:0, page:1, query:'', settings:null, items:[], drag:null };
 const repairTerminal = createRepairTerminal({ api });
 const updatePrompt = createUpdatePrompt({ api, ready:()=>state.user?.role==='admin'&&Boolean(state.profile)&&!repairTerminal.active, busy:()=>Boolean(document.querySelector('dialog[open]')) });
-let homeCarousel, stopSearch = () => {}, stopLibrary = () => {}, stopHealthCheck = () => {};
+let homeCarousel, episodeGrid, stopSearch = () => {}, stopLibrary = () => {}, stopHealthCheck = () => {};
+function stopEpisodeGrid(){episodeGrid?.destroy();episodeGrid=null;}
+function refreshWatchHistory(){if(!state.user||!state.profile||$('#player').open)return;refreshContinueWatching();episodeGrid?.refresh();}
 function stopHomeCarousel(){homeCarousel?.destroy();homeCarousel=null;}
 const img = (path, size='w780') => path && /^\/[\w.\/-]+$/.test(path) ? `https://image.tmdb.org/t/p/${size}${path}` : '';
 const image = (path, alt='', size='w780', eager=false) => path ? `<img src="${esc(img(path,size))}" alt="${esc(alt)}" loading="${eager?'eager':'lazy'}">` : '';
@@ -108,7 +111,7 @@ function storedList(){return watchlistPreference(state.user.id,state.profile.id,
 function saved(item){return storedList().some(i=>i.id===item.id && i.type===item.type);}
 function saveTitle(){const item=state.detail,list=storedList(),index=list.findIndex(i=>i.id===item.id&&i.type===item.type);if(index>=0)list.splice(index,1);else list.unshift(item);localStorage.setItem(listKey(),JSON.stringify(list.slice(0,100)));const button=$('[data-action=save]');button.innerHTML=icon(index>=0?'plus':'check')+(index>=0?'Add to My List':'In My List');toast(index>=0?'Removed from My List':'Added to My List');}
 function renderLogin(){
-  stopSearch();stopLibrary();stopHealthCheck();stopHomeCarousel();state.route++;state.settings=null;state.profile=null;state.profiles=[];viewPositions.clear();visibleRoute='';
+  stopSearch();stopLibrary();stopHealthCheck();stopEpisodeGrid();stopHomeCarousel();state.route++;state.settings=null;state.profile=null;state.profiles=[];viewPositions.clear();visibleRoute='';
   $('#app').innerHTML=`<main class="login-page" id="main" tabindex="-1">
     <header class="login-brand"><img class="brand-mark" src="/brand.svg" alt="watch.local" width="422" height="72"></header>
     <div class="login-layout">
@@ -202,13 +205,13 @@ async function route({restoreScroll=true}={}){
   const saved=restoreScroll&&changed&&viewPositions.get(next);
   if(saved&&version===state.route&&state.user&&state.profile){window.scrollTo(0,saved.top);document.querySelectorAll('.rail').forEach(rail=>rail.scrollLeft=saved.rails[rail.closest('section')?.querySelector('h2')?.textContent]||0);}
 }
-async function renderRoute(){stopSearch();stopLibrary();stopHealthCheck();if(!state.user)return renderLogin();if(!state.profile)return profilesPage();const version=++state.route;const [page,sub,id]=(location.hash.slice(1)||'home').split('?')[0].split('/');state.page=1;window.scrollTo(0,0);
+async function renderRoute(){stopSearch();stopLibrary();stopHealthCheck();stopEpisodeGrid();if(!state.user)return renderLogin();if(!state.profile)return profilesPage();const version=++state.route;const [page,sub,id]=(location.hash.slice(1)||'home').split('?')[0].split('/');state.page=1;window.scrollTo(0,0);
   if(page==='settings'){shell('<div class="page"><div class="empty"><div class="spinner"></div></div></div>');try{await settingsPage(sub||'overview',version);}catch(e){if(version===state.route)shell(`<div class="page">${errorBox(e)}</div>`);}return;}
   if(page==='search'){renderSearch(version);return;}
   shell(`<div class="page"><div class="page-head"><h1>${page==='live'?'Live, right now.':page==='movies'?'Movies':page==='series'?'Series':'Your next watch.'}</h1></div><div class="grid">${Array.from({length:10},()=>'<div class="skeleton poster"></div>').join('')}</div></div>`);
   try{
     if(page==='title'){
-      const data=await api(`title?type=${sub}&id=${id}`);if(version!==state.route)return;state.detail={...data,type:sub};shell(hero(state.detail,true)+`<div class="detail-body"><section class="detail-about"><div><h2>About ${esc(title(data))}</h2><p>${esc(data.overview)}</p></div><dl class="details-meta"><div><dt>Cast</dt><dd>${esc(data.credits?.cast?.slice(0,4).map(i=>i.name).join(', ')||'Not available')}</dd></div><div><dt>Genres</dt><dd>${esc(data.genres?.map(i=>i.name).join(', ')||'Not available')}</dd></div><div><dt>Language</dt><dd>${esc(data.original_language?.toUpperCase())}</dd></div><div><dt>Release</dt><dd>${esc(data.release_date||data.first_air_date||'Not announced')}</dd></div></dl></section>${sub==='tv'?`<section id="episodes"><div class="page-head"><h2>Episodes</h2><label class="field"><span class="sr-only">Season</span><select id="season">${(data.seasons||[]).filter(s=>s.episode_count>0).map(s=>`<option value="${s.season_number}" ${s.season_number===1?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label></div><div id="episode-grid" class="grid landscape"></div></section>`:''}</div>`);if(sub==='tv'){api(`upcoming?id=${id}`).then(info=>{if(version!==state.route)return;const details=upcomingDetails(info);if(details)$('.detail-body')?.insertAdjacentHTML('afterbegin',details);}).catch(()=>{});const load=async()=>{const grid=$('#episode-grid');grid.innerHTML='<div class="empty"><div class="spinner"></div></div>';try{const season=$('#season').value;const d=await api(`episodes?id=${id}&season=${season}`);if(version!==state.route||$('#season').value!==season)return;grid.innerHTML=(d.episodes||[]).map(e=>`<button class="episode" data-action="play" data-type="tv" data-id="${id}" data-season="${season}" data-episode="${e.episode_number}" data-title="${esc(title(data)+' · S'+season+' E'+e.episode_number)}">${image(e.still_path||data.backdrop_path,'','w500')}<strong>${e.episode_number}. ${esc(e.name)}</strong><p>${esc(e.overview||'Episode details are not available.')}</p></button>`).join('')||'<p class="muted">No episodes available for this season.</p>';}catch(e){if(version===state.route)grid.innerHTML=errorBox(e);}};$('#season').onchange=load;await load();}return;
+      const data=await api(`title?type=${sub}&id=${id}`);if(version!==state.route)return;state.detail={...data,type:sub};shell(hero(state.detail,true)+`<div class="detail-body"><section class="detail-about"><div><h2>About ${esc(title(data))}</h2><p>${esc(data.overview)}</p></div><dl class="details-meta"><div><dt>Cast</dt><dd>${esc(data.credits?.cast?.slice(0,4).map(i=>i.name).join(', ')||'Not available')}</dd></div><div><dt>Genres</dt><dd>${esc(data.genres?.map(i=>i.name).join(', ')||'Not available')}</dd></div><div><dt>Language</dt><dd>${esc(data.original_language?.toUpperCase())}</dd></div><div><dt>Release</dt><dd>${esc(data.release_date||data.first_air_date||'Not announced')}</dd></div></dl></section>${sub==='tv'?`<section id="episodes"><div class="page-head"><h2>Episodes</h2><label class="field"><span class="sr-only">Season</span><select id="season">${(data.seasons||[]).filter(s=>s.episode_count>0).map(s=>`<option value="${s.season_number}" ${s.season_number===1?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label></div><div id="episode-grid" class="grid landscape"></div></section>`:''}</div>`);if(sub==='tv'){api(`upcoming?id=${id}`).then(info=>{if(version!==state.route)return;const details=upcomingDetails(info);if(details)$('.detail-body')?.insertAdjacentHTML('afterbegin',details);}).catch(()=>{});episodeGrid=mountEpisodeGrid($('#episodes'),{id,show:data,profileId:state.profile.id,api,image,icon});await episodeGrid.ready;}return;
     }
     if(page==='live'){const data=await api('live');if(version!==state.route)return;shell(livePage(data.items,icon));mountLivePage($('.live-page'),data.items,icon);return;}
     if(['movies','series'].includes(page)){
@@ -319,7 +322,7 @@ function userDialog(id){const prior=state.settings.users.find(u=>u.id===id),owne
 function deleteDialog(id){const user=state.settings.users.find(u=>u.id===id),dialog=$('#dialog');dialog.innerHTML=`<header><h2>Delete ${esc(user.username)}?</h2></header><p class="dialog-copy">This account will lose access to the web player and IPTV service. Its active sessions and media links will stop working.</p><p class="error" id="delete-error"></p><div class="actions"><button class="btn ghost" data-action="close-dialog">Cancel</button><button class="btn danger" id="confirm-delete">Delete user</button></div>`;dialog.showModal();$('#confirm-delete').onclick=async()=>{try{await api('users/'+id,{method:'DELETE'});dialog.close();toast('User deleted');route();}catch(e){$('#delete-error').textContent=e.message;}};}
 async function copyValue(id){const input=document.getElementById(id);try{if(navigator.clipboard&&isSecureContext)await navigator.clipboard.writeText(input.value);else{const area=document.createElement('textarea');area.value=input.value;area.style.position='fixed';area.style.opacity='0';document.body.append(area);area.select();const ok=document.execCommand('copy');area.remove();if(!ok)throw Error();}toast('Copied to clipboard');}catch{toast('Could not copy. Reveal the field and copy it manually.');}}
 let hls,playController,lastPlayback,playbackProgress,mobileSession;
-function closePlayer(refresh=true){const saved=playbackProgress?.stop()||Promise.resolve();playbackProgress=null;mobileSession?.stop();mobileSession=null;playController?.abort();hls?.destroy();hls=null;const video=$('video',$('#player'));if(video){video.pause();video.removeAttribute('src');video.load();}$('#player').close();$('#player').innerHTML='';if(refresh)saved.then(refreshContinueWatching);return saved;}
+function closePlayer(refresh=true){const saved=playbackProgress?.stop()||Promise.resolve();playbackProgress=null;mobileSession?.stop();mobileSession=null;playController?.abort();hls?.destroy();hls=null;const video=$('video',$('#player'));if(video){video.pause();video.removeAttribute('src');video.load();}$('#player').close();$('#player').innerHTML='';if(refresh)saved.then(refreshWatchHistory);return saved;}
 function nativeHls(video,provider){
   // Chromium can advertise native HLS but reject otherwise playable streams.
   // Keep Apple's native fullscreen player and use Hls.js on Chromium.
@@ -447,7 +450,7 @@ document.addEventListener('click',async e=>{if(e.target.closest('a[href="#search
   }catch(error){toast(error.message);button.disabled=false;}
 });
 window.addEventListener('hashchange',route);
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshContinueWatching();});
-window.addEventListener('focus',refreshContinueWatching);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshWatchHistory();});
+window.addEventListener('focus',refreshWatchHistory);
 window.addEventListener('keydown',event=>{if(event.key==='/'&&!/INPUT|TEXTAREA|SELECT/.test(event.target.tagName)&&!$('#player').open&&!$('#dialog').open){event.preventDefault();openSearch();}});
 try{let session=await api('session');if(!session.user&&session.lanAccess){await api('logout',{method:'POST',body:{},timeoutMs:15000});session=await api('session');}state.user=session.user;state.lanAccess=session.lanAccess;state.name=session.name;await route();}catch(e){$('#app').innerHTML=`<main class="login-page">${errorBox(e,{restart:true})}</main>`;}finally{document.dispatchEvent(new Event('watchlocal-ready'));}

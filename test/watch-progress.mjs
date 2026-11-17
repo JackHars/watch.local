@@ -49,6 +49,34 @@ test('continue watching uses the latest episode, orders recent watches first, an
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test('season progress includes every watched episode and keeps accounts, profiles, shows and seasons separate', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'watchlocal-episodes-'));
+  try {
+    const store = createWatchProgressStore(directory);
+    const alice = (await store.createProfile('owner', { name: 'Alice', color: '#527de0' })).id;
+    const bob = (await store.createProfile('owner', { name: 'Bob', color: '#27865f' })).id;
+    await store.save('owner', alice, { ...episode, episode: 1, position: 2700, ended: true });
+    await store.save('owner', alice, episode);
+    await store.save('owner', alice, { ...episode, season: 1 });
+    await store.save('owner', alice, { ...episode, id: 9999 });
+    await store.save('owner', alice, { ...episode, season: 0 });
+    await store.save('owner', alice, { ...movie, id: 1396 });
+    await store.save('owner', bob, { ...episode, position: 1200 });
+    const restarted = createWatchProgressStore(directory);
+    const items = await restarted.episodes('owner', alice, { id: '1396', season: '2' });
+    assert.deepEqual(items.map(item => [item.episode, item.completed, item.position]), [[1, true, 2700], [3, false, 600]]);
+    assert.ok(items.every(item => !('playbackId' in item) && !('sequence' in item)));
+    assert.equal((await restarted.episodes('owner', bob, episode))[0].position, 1200);
+    assert.equal((await restarted.episodes('owner', alice, { ...episode, season: 0 }))[0].season, 0);
+    assert.deepEqual(await restarted.episodes('owner', alice, { ...episode, season: 10 }), []);
+    await assert.rejects(restarted.episodes('other-user', alice, episode), { status: 404 });
+    await assert.rejects(restarted.episodes('owner', undefined, episode), { status: 400 });
+    for (const input of [{ id: 0, season: 2 }, { id: 1396, season: -1 }, { id: 1396 }, { id: '1396/x', season: 2 }]) {
+      await assert.rejects(restarted.episodes('owner', alice, input), { status: 400 });
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test('late heartbeats cannot overwrite the final position, and bad timelines cannot corrupt saved data', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'watchlocal-progress-'));
   try {

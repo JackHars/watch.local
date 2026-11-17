@@ -40,6 +40,7 @@ const files = new Map([
   ['/', ['../public/index.html','text/html; charset=utf-8']],
   ['/navigation.mjs', ['../public/navigation.mjs','text/javascript']],
   ['/watch-progress.mjs', ['../public/watch-progress.mjs','text/javascript']],
+  ['/episodes.mjs', ['../public/episodes.mjs','text/javascript']],
   ['/mobile-player.mjs', ['../public/mobile-player.mjs','text/javascript']],
   ['/profiles.mjs', ['../public/profiles.mjs','text/javascript']],
   ['/boot.js', ['../public/boot.js','text/javascript']],
@@ -97,6 +98,10 @@ export async function handleWeb(req, res) {
     }
     if (path === '/ui/profiles' && req.method === 'POST') {
       json(res, 201, { profile: await watchProgressStore.createProfile(user.id, await body(req)) }); return true;
+    }
+    if (path === '/ui/episode-progress' && req.method === 'GET') {
+      json(res, 200, { items: await watchProgressStore.episodes(user.id, url.searchParams.get('profileId'), Object.fromEntries(url.searchParams)) });
+      return true;
     }
     if (path === '/ui/progress' && req.method === 'GET') {
       const profileId = url.searchParams.get('profileId');

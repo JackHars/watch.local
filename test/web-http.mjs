@@ -47,6 +47,8 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/provider-health.mjs')).status,200);
   assert.equal((await request('/ui/health-check/play',{method:'POST',body:{provider:'zstream'}})).status,401);
   assert.equal((await request('/watch-progress.mjs')).status,200);
+  assert.equal((await request('/episodes.mjs')).status,200);
+  assert.equal((await request('/ui/episode-progress?id=1396&season=2')).status,401);
   assert.equal((await request('/mobile-player.mjs')).status,200);
   assert.equal((await request('/profiles.mjs')).status,200);
   assert.equal((await request('/boot.js')).status,200);
@@ -90,6 +92,7 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/ui/profiles',{cookie:admin,method:'POST',body:{name:'Guest',color:'#527de0'},origin:'https://evil.test'})).status,403);
   r=await request('/ui/profiles',{cookie:admin,method:'POST',body:{name:'Owner',color:'#527de0'}});assert.equal(r.status,201);const ownerProfile=(await r.json()).profile;
   assert.equal((await request('/ui/progress',{cookie:admin})).status,400);
+  assert.equal((await request('/ui/episode-progress?id=1396&season=2',{cookie:admin})).status,400);
   const progress={profileId:ownerProfile.id,type:'movie',id:550,title:'Fixture Movie',position:600,duration:7200,playbackId:'owner-playback',sequence:1};
   assert.equal((await request('/ui/progress',{cookie:admin,method:'POST',body:progress,origin:'https://evil.test'})).status,403);
   assert.equal((await request('/ui/progress',{cookie:admin,method:'POST',body:progress})).status,200);
@@ -117,6 +120,9 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   r=await request('/player_api.php?username=owner&password=password123&action=get_series_info&series_id=1396');const details=await r.json();assert.equal(details.episodes['2'][0].id,'972873');assert.match(details.episodes['2'][0].direct_source,/\/series\/owner\/password123\/972873/);
   const finishedEpisode={...progress,type:'tv',id:1396,title:'Fixture Series',season:2,episode:1,position:2880,duration:2880,ended:true};
   assert.equal((await request('/ui/progress',{cookie:admin,method:'POST',body:finishedEpisode})).status,200);
+  const seasonProgress=(await request('/ui/episode-progress?id=1396&season=2&profileId='+ownerProfile.id,{cookie:admin}).then(r=>r.json())).items;
+  assert.deepEqual(seasonProgress.map(item=>[item.episode,item.completed]),[[1,true]]);
+  assert.equal((await request('/ui/episode-progress?id=1396&season=bad&profileId='+ownerProfile.id,{cookie:admin})).status,400);
   const continuation=(await request('/ui/progress?profileId='+ownerProfile.id,{cookie:admin}).then(r=>r.json())).items;
   assert.equal(continuation[0].nextEpisode,true);assert.equal(continuation[0].season,2);assert.equal(continuation[0].episode,2);assert.equal(continuation[0].position,0);
   assert.equal((await request('/ui/progress?type=tv&id=1396&season=2&episode=2&profileId='+ownerProfile.id,{cookie:admin}).then(r=>r.json())).progress,null);
@@ -136,11 +142,13 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   r=await request('/ui/login',{method:'POST',body:{username:'viewer',password:'viewerpass'}});const cookie=r.headers.get('set-cookie').split(';')[0];
   assert.deepEqual((await request('/ui/profiles',{cookie}).then(r=>r.json())).profiles,[]);
   assert.equal((await request('/ui/progress?profileId='+ownerProfile.id,{cookie})).status,404);
+  assert.equal((await request('/ui/episode-progress?id=1396&season=2&profileId='+ownerProfile.id,{cookie})).status,404);
   assert.equal((await request('/ui/library?type=movie&profileId='+ownerProfile.id,{cookie})).status,404);
   assert.equal((await request('/ui/progress',{cookie,method:'POST',body:progress})).status,404);
   r=await request('/ui/profiles',{cookie,method:'POST',body:{name:'Viewer',color:'#27865f',userId:owner.id}});const viewerProfile=(await r.json()).profile;
   assert.equal((await request('/ui/profiles',{cookie:admin}).then(r=>r.json())).profiles.length,1);
   assert.deepEqual((await request('/ui/progress?profileId='+viewerProfile.id,{cookie}).then(r=>r.json())).items,[]);
+  assert.deepEqual((await request('/ui/episode-progress?id=1396&season=2&profileId='+viewerProfile.id+'&user='+owner.id,{cookie}).then(r=>r.json())).items,[]);
   assert.equal((await request('/ui/progress',{cookie,method:'POST',body:{...progress,profileId:viewerProfile.id,userId:owner.id,position:1800}})).status,200);
   assert.equal((await request('/ui/progress?type=movie&id=550&profileId='+ownerProfile.id,{cookie:admin}).then(r=>r.json())).progress.position,600);
   assert.equal((await request('/ui/progress?type=movie&id=550&profileId='+viewerProfile.id+'&user='+owner.id,{cookie}).then(r=>r.json())).progress.position,1800);
