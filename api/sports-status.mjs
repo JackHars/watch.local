@@ -6,27 +6,33 @@ const leagues = {
 };
 const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' });
 const normalize = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  .replace(/\blos angeles\b/g, 'la').replace(/[^a-z0-9]/g, '');
+  .replace(/\blos angeles\b/g, 'la').replace(/[^a-z0-9]+/g, ' ').trim();
+const sameTeam = (wanted, names) => names.some(name => name === wanted
+  // The event directory often omits the mascot that ESPN appends. Require a
+  // complete, multiword school/city name so a short prefix cannot pick a rival.
+  || (wanted.includes(' ') && name.startsWith(wanted + ' ')));
 
-export function scoreboardStatus(event, games) {
+function scoreboardMatch(event, games) {
   const teams = String(event.title || '').split(/\s+(?:vs\.?|v\.?|at|@)\s+/i).map(normalize);
   if (teams.length !== 2 || teams.some(team => !team)) return null;
   const candidates = [];
   for (const game of games) for (const competition of game.competitions || []) {
     const contestants = competition.competitors || [];
-    const difference = Math.abs(Date.parse(competition.date || game.date) / 1000 - event.starts_at);
+    const startAt = Date.parse(competition.date || game.date) / 1000;
+    const difference = Math.abs(startAt - event.starts_at);
     if (contestants.length !== 2 || !Number.isFinite(difference) || difference > 5400) continue;
     const names = contestants.map(({ team }) => [team?.displayName, team?.shortDisplayName].filter(Boolean).map(normalize));
-    if (!(names[0].includes(teams[0]) && names[1].includes(teams[1]) || names[0].includes(teams[1]) && names[1].includes(teams[0]))) continue;
+    if (!(sameTeam(teams[0], names[0]) && sameTeam(teams[1], names[1]) || sameTeam(teams[0], names[1]) && sameTeam(teams[1], names[0]))) continue;
     const status = competition.status?.type || game.status?.type;
     const state = status?.completed === true && status.state === 'post' ? 'ENDED'
       : status?.state === 'in' ? 'LIVE' : status?.state === 'pre' ? 'UPCOMING' : null;
-    if (state) candidates.push({ state, difference });
+    if (state) candidates.push({ state, difference, startAt });
   }
   candidates.sort((a, b) => a.difference - b.difference);
   if (!candidates.length || candidates[1]?.difference === candidates[0].difference) return null;
-  return candidates[0].state;
+  return candidates[0];
 }
+export const scoreboardStatus = (event, games) => scoreboardMatch(event, games)?.state || null;
 
 export function createSportsStatus({ request, now = Date.now }) {
   const cache = new Map();
@@ -52,8 +58,8 @@ export function createSportsStatus({ request, now = Date.now }) {
       if (!leagues[event.sport] || !Number.isFinite(event.starts_at) || !(event.starts_at > 0)) return;
       const date = day.format(new Date(event.starts_at * 1000)).replaceAll('-', '');
       const data = await scoreboard(`${leagues[event.sport]}/scoreboard?dates=${date}`);
-      const state = scoreboardStatus(event, data.games);
-      if (state) result.set(event.slug, { state, checkedAt: data.updated });
+      const match = scoreboardMatch(event, data.games);
+      if (match) result.set(event.slug, { state: match.state, startAt: match.startAt, checkedAt: data.updated });
     }));
     return result;
   };

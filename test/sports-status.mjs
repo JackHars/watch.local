@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scoreboardStatus, createSportsStatus } from '../api/sports-status.mjs';
-import { eventStatus } from '../api/sports.mjs';
+import { createSportsProvider, eventStatus } from '../api/sports.mjs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const time = Date.parse('2026-11-12T02:00:00Z');
 const event = { sport: 'nba', slug: 'nba/2026-11-12/home-away', title: 'Home Team vs Away Team', starts_at: Date.parse('2026-11-12T00:00:00Z') / 1000, ends_at: time / 1000 + 3600 };
@@ -19,6 +22,31 @@ test('scoreboard matching uses both teams and start time, including reversed ord
   assert.equal(scoreboardStatus(event, [game('post', '2026-11-11T23:00:00Z'), game('in')]), 'LIVE');
   assert.equal(scoreboardStatus(event, [game('post'), game('in')]), null, 'Ambiguous fixtures must not mark the wrong game finished');
   assert.equal(scoreboardStatus({ ...event, title: 'LA Clippers vs Away Team' }, [game('in', undefined, ['Los Angeles Clippers', 'Away Team'])]), 'LIVE');
+});
+
+test('college scoreboard names with mascots correct an early listing time without matching another school', async () => {
+  const listedStart = Date.parse('2026-11-17T22:00:00Z') / 1000;
+  const officialStart = listedStart + 3600;
+  const clock = Date.parse('2026-11-17T22:35:00Z');
+  const fixture = { sport: 'cfb', slug: 'cfb/2026-11-17/western-michigan-vs-eastern-michigan', title: 'Western Michigan vs Eastern Michigan', starts_at: listedStart, ends_at: listedStart + 14400, has_payload: false };
+  const official = game('pre', new Date(officialStart * 1000).toISOString(), ['Western Michigan Broncos', 'Eastern Michigan Eagles']);
+  assert.equal(scoreboardStatus(fixture, [official]), 'UPCOMING');
+  assert.equal(scoreboardStatus({ ...fixture, title: 'Central Michigan vs Eastern Michigan' }, [official]), null);
+  const status = createSportsStatus({ now: () => clock, request: async () => ({ text: JSON.stringify({ events: [official] }) }) });
+  assert.deepEqual((await status([fixture])).get(fixture.slug), { state: 'UPCOMING', startAt: officialStart, checkedAt: clock });
+
+  const directory = await mkdtemp(join(tmpdir(), 'watchlocal-sports-time-'));
+  try {
+    const provider = createSportsProvider({ directory, now: () => clock, source: {
+      list: async sport => ({ events: sport === 'cfb' ? [fixture] : [], errors: [] }),
+      status,
+    } });
+    await provider.initialize();
+    const [row] = await provider.browserRows();
+    assert.equal(row.status, 'UPCOMING');
+    assert.equal(row.starts_at, officialStart);
+    assert.equal((await provider.epg(row.stream_id)).epg_listings[0].start_timestamp, String(officialStart));
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test('scoreboard fetches coalesce, use the league calendar day, refresh, and tolerate temporary outages', async () => {

@@ -194,7 +194,15 @@ export function createSportsProvider({ directory, source = createSportsSource(),
     const events = candidates.filter(e => e.listed && !e.always_live && e.starts_at <= time + 86400 && e.ends_at >= time - 21600);
     try {
       const statuses = await source.status(events);
-      for (const event of events) if (state.events[event.slug]?.starts_at === event.starts_at) state.events[event.slug].broadcast_status = statuses.get(event.slug);
+      for (const event of events) if (state.events[event.slug]?.starts_at === event.starts_at) {
+        const record = state.events[event.slug], status = statuses.get(event.slug);
+        if (Number.isFinite(status?.startAt) && status.startAt > 0 && Math.abs(status.startAt - record.starts_at) <= 5400) {
+          const previousStart = record.starts_at, shift = status.startAt - previousStart;
+          record.starts_at = status.startAt;
+          if (record.ends_at > previousStart) record.ends_at += shift;
+        }
+        record.broadcast_status = status;
+      }
     } catch { /* Scoreboard availability must not prevent watching a live feed. */ }
   }
   const path = join(directory, 'sports.json');
