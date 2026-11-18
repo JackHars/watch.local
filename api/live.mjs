@@ -2,13 +2,16 @@ import { createSportsProvider } from './sports.mjs';
 import { createZliveProvider, ZLIVE_ID_BASE } from './zlive.mjs';
 import { createTimstreamsProvider, TIMSTREAMS_ID_BASE } from './timstreams.mjs';
 import { createStrmfreeSource } from './strmfree.mjs';
+import { createScorezoneSource } from './scorezone.mjs';
+import { createAurasportsSource } from './aurasports.mjs';
 import { groupChannels, probeChannelStream } from './channel-groups.mjs';
 
 // Existing sports IDs stay unchanged. Persistent TV channels occupy their own
 // numeric range so Xtream clients can retain favorites across imports/restarts.
-export function createLiveProvider({ directory, sportsSource, zliveSource, timstreamsSource, strmfreeSource = createStrmfreeSource(), probeChannel = probeChannelStream, getConfig = () => ({ sports: true, zlive: true, timstreams: true, strmfree: true }) }) {
+export function createLiveProvider({ directory, sportsSource, zliveSource, timstreamsSource, strmfreeSource = createStrmfreeSource(), scorezoneSource = createScorezoneSource(), aurasportsSource = createAurasportsSource(), probeChannel = probeChannelStream, getConfig = () => ({ sports: true, zlive: true, timstreams: true, strmfree: true, scorezone: true, aurasports: true }) }) {
   const providers = {
-    sports: createSportsProvider({ directory, source: sportsSource, fallback: strmfreeSource, fallbackEnabled: () => getConfig().strmfree !== false }),
+    sports: createSportsProvider({ directory, source: sportsSource, fallback: strmfreeSource, fallbackEnabled: () => getConfig().strmfree !== false,
+      fallbacks: [{ id: 'scorezone', source: scorezoneSource, enabled: () => getConfig().scorezone !== false }, { id: 'aurasports', source: aurasportsSource, enabled: () => getConfig().aurasports !== false }] }),
     zlive: createZliveProvider({ directory, source: zliveSource }),
     timstreams: createTimstreamsProvider({ directory, source: timstreamsSource }),
   };
@@ -57,7 +60,7 @@ export function createLiveProvider({ directory, sportsSource, zliveSource, timst
     initialize: () => Promise.all(Object.values(providers).map(p => p.initialize())),
     ensure: () => gather('ensure'),
     refresh: options => gather('refresh', options),
-    status: () => ({ ...Object.fromEntries(Object.entries(providers).map(([id, p]) => [id, { enabled: Boolean(getConfig()[id]), ...p.status() }])), strmfree: { enabled: getConfig().strmfree !== false, ...strmfreeSource?.status?.() } }),
+    status: () => ({ ...Object.fromEntries(Object.entries(providers).map(([id, p]) => [id, { enabled: Boolean(getConfig()[id]), ...p.status() }])), strmfree: { enabled: getConfig().strmfree !== false, ...strmfreeSource?.status?.() }, scorezone: { enabled: getConfig().scorezone !== false, ...scorezoneSource?.status?.() }, aurasports: { enabled: getConfig().aurasports !== false, ...aurasportsSource?.status?.() } }),
     categories: async () => [...new Map((await gather('categories')).flat().map(c => [c.category_id, c])).values()],
     rows: async (...args) => (await gather('rows', ...args)).flat().map((row, i) => ({ ...row, num: i + 1 })),
     async browserRows() {

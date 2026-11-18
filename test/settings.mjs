@@ -73,12 +73,12 @@ test('existing installations gain live providers and retain independent enable/d
   const state=original.get();delete state.config.live;
   await writeFile(join(directory,'iptv.json'),JSON.stringify(state));
   const migrated=createSettingsStore(directory);await migrated.initialize();
-  assert.deepEqual(migrated.config().live,{sports:true,zlive:true,strmfree:true,timstreams:true});
+  assert.deepEqual(migrated.config().live,{sports:true,zlive:true,strmfree:true,timstreams:true,scorezone:true,aurasports:true});
   await migrated.configure({live:{zlive:false}});
   const restored=createSettingsStore(directory);await restored.initialize();
-  assert.deepEqual(restored.config().live,{sports:true,zlive:false,strmfree:true,timstreams:true});
+  assert.deepEqual(restored.config().live,{sports:true,zlive:false,strmfree:true,timstreams:true,scorezone:true,aurasports:true});
   await restored.configure({live:{sports:false}});
-  assert.deepEqual(restored.config().live,{sports:false,zlive:false,strmfree:true,timstreams:true});
+  assert.deepEqual(restored.config().live,{sports:false,zlive:false,strmfree:true,timstreams:true,scorezone:true,aurasports:true});
   await restored.configure({live:{timstreams:false}});
   const again=createSettingsStore(directory);await again.initialize();assert.equal(again.config().live.timstreams,false);
   for(const live of [null,[],true,{zlive:'false'},{timstreams:'false'},{unknown:true}])await assert.rejects(restored.configure({live}),{status:400});

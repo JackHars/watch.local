@@ -387,6 +387,35 @@
         "api/sports.mjs",
         "api/sports-playback.mjs"
       ]
+    },
+    {
+      "id": "scorezone",
+      "name": "ScoreZone",
+      "kind": "sports",
+      "origins": [
+        "https://scorezonetv.live",
+        "https://testscore.pxxl.pro"
+      ],
+      "implementation": [
+        "api/scorezone.mjs",
+        "api/sports.mjs"
+      ]
+    },
+    {
+      "id": "aurasports",
+      "name": "AuraSports",
+      "kind": "sports",
+      "origins": [
+        "https://aurasports.cfd",
+        "https://play.aurasportsplayer.cfd",
+        "https://frame.embedme.cfd",
+        "https://hls.meth-streams-hd.cfd"
+      ],
+      "implementation": [
+        "api/aurasports.mjs",
+        "api/zlive-media.mjs",
+        "api/sports.mjs"
+      ]
     }
   ]
 }

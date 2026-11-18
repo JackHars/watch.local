@@ -174,9 +174,17 @@ export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}
   };
 }
 
-export function createSportsProvider({ directory, source = createSportsSource(), fallback = null, fallbackEnabled = () => true, now = Date.now, providerTimeout = 25000 }) {
+export function createSportsProvider({ directory, source = createSportsSource(), fallback = null, fallbackEnabled = () => true, fallbacks = [], now = Date.now, providerTimeout = 25000 }) {
   let state = { nextId: 1, events: {}, updatedAt: null, errors: [] }, refreshing, saveQueue = Promise.resolve();
   const playing = new Map(), resolving = new Map();
+  const adapters = [
+    { id: 'primary', source, enabled: () => true },
+    ...fallbacks,
+    // The verified direct-video sources answer quickly. StreamFree remains a
+    // last option because its current CDN frequently returns HTTP 403 video.
+    ...(fallback ? [{ id: 'strmfree', source: fallback, enabled: fallbackEnabled }] : []),
+  ];
+  const adapterFor = id => adapters.find(adapter => adapter.id === id && adapter.enabled());
   async function attempt(work) {
     const controller = new AbortController(), signal = controller.signal;
     const timer = setTimeout(() => controller.abort(), providerTimeout);
@@ -288,61 +296,63 @@ export function createSportsProvider({ directory, source = createSportsSource(),
       // for unrelated leagues made a slow scoreboard delay every broadcast.
       await updateStatus([stored]);
       if (eventStatus(state.events[stored.slug] || stored, now) === 'ENDED') throw fail(410, 'This sports event has ended.');
-      if (resolving.has(Number(id))) return resolving.get(Number(id));
+      const resolvingKey = `${id}:${fresh ? 1 : 0}:${[...exclude].sort().join(',')}`;
+      if (resolving.has(resolvingKey)) return resolving.get(resolvingKey);
       const cached = playing.get(Number(id));
       // IPTV apps re-request their original URL every few seconds. Keep the
       // player context stable during viewing; its media credentials renew below.
-      if (!fresh && cached && now() - cached.used < 120000 && !exclude.includes(cached.source) && (cached.source !== 'strmfree' || fallbackEnabled())) { cached.used = now(); return cached.stream; }
+      if (!fresh && cached && now() - cached.used < 120000 && !exclude.includes(cached.source) && adapterFor(cached.source)) { cached.used = now(); return cached.stream; }
       const pending = (async () => {
-        const candidates = ['primary', ...(fallback && fallbackEnabled() ? ['strmfree'] : [])].filter(name => !exclude.includes(name));
+        const candidates = adapters.filter(adapter => adapter.enabled() && !exclude.includes(adapter.id));
+        const failed = [...exclude];
         let primaryError, last;
-        for (const name of candidates) {
+        for (const { id: name, source: adapter } of candidates) {
           try {
             let stream = await attempt(async signal => {
-              const adapter = name === 'primary' ? source : fallback;
               let value;
               if (name === 'primary') {
                 const event = await source.resolve(stored, { signal });
                 if (!event.has_payload || !event.stream_url) throw fail(503, eventStatus(event, now) === 'UPCOMING' ? 'This event has not started and its broadcast is not available yet.' : 'The sports source has not published a broadcast URL for this event yet.');
                 value = await source.hls(event, { signal, verify: true });
-              } else value = await fallback.resolve(stored, { signal, fresh });
+              } else value = await adapter.resolve(stored, { signal, fresh });
               // Built-in adapters validate each candidate before selecting it,
               // so a bad segment cannot discard their remaining backups.
               if (adapter.verify && !(name === 'primary' ? adapter.validatesHls : adapter.validatesStreams)) await adapter.verify(value, { signal });
               return value;
             });
-            if (fallback) stream = { ...stream, playback: { provider: 'sports-direct', root: stream.url, ...stream.playback, eventId: Number(id), sportsSource: name } };
+            if (adapters.length > 1) stream = { ...stream, playback: { provider: 'sports-direct', root: stream.url, ...stream.playback, eventId: Number(id), sportsSource: name, failedSportsSources: failed } };
             if (stream.playback) {
               playing.set(Number(id), { stream, source: name, used: now() });
               while (playing.size > 100) playing.delete(playing.keys().next().value);
             }
             return stream;
-          } catch (error) { last = error; if (name === 'primary') primaryError = error; }
+          } catch (error) { last = error; failed.push(name); if (name === 'primary') primaryError = error; }
         }
         if (primaryError?.status === 503 && last?.status === 503 && eventStatus(stored, now) === 'UPCOMING') throw primaryError;
         if (candidates.length > 1) throw fail(503, 'No playable broadcast is available for this event right now. All enabled sports sources were tried. A live game may not have a working video feed yet.');
         throw last || fail(502, 'No enabled sports source could play this event.');
-      })().finally(() => resolving.delete(Number(id)));
-      resolving.set(Number(id), pending);
+      })().finally(() => resolving.delete(resolvingKey));
+      resolving.set(resolvingKey, pending);
       return pending;
     },
     async media(url, context) {
-      if (context.sportsSource === 'strmfree' && (!fallback || !fallbackEnabled())) throw fail(403, 'The Strmfree fallback is disabled. Reopen the event to use the primary source.');
+      if (!adapterFor(context.sportsSource)) throw fail(403, 'This sports source is disabled. Reopen the event to use an enabled source.');
       const active = playing.get(context.eventId);
       // Old root URLs remain usable after a failed provider is replaced. Child
       // segments retain their original provider; don't splice unrelated bytes.
-      if (active && url === context.root && active.source !== context.sportsSource && (active.source !== 'strmfree' || fallbackEnabled())) return { url: active.stream.url, headers: active.stream.headers, playback: active.stream.playback };
+      if (active && url === context.root && active.source !== context.sportsSource && adapterFor(active.source)) return { url: active.stream.url, headers: active.stream.headers, playback: active.stream.playback };
       if (context.provider === 'sports-direct') return null;
-      const adapter = context.sportsSource === 'strmfree' ? fallback : source;
-      const resource = await adapter.media?.(url, context);
-      if (resource?.playback && context.eventId) resource.playback = { ...resource.playback, eventId: context.eventId, sportsSource: context.sportsSource };
+      const resource = await adapterFor(context.sportsSource).source.media?.(url, context);
+      if (resource?.playback && context.eventId) resource.playback = { ...resource.playback, eventId: context.eventId, sportsSource: context.sportsSource, failedSportsSources: context.failedSportsSources || [] };
       return resource;
     },
     async recover(context) {
-      if (!context?.eventId || context.sportsSource !== 'primary' || !fallback || !fallbackEnabled()) return null;
+      if (!context?.eventId || !context.sportsSource) return null;
       const cached = playing.get(context.eventId);
-      if (cached?.source === 'strmfree') return cached.stream;
-      return provider.resolve(context.eventId, { fresh: true, exclude: ['primary'] });
+      if (cached && cached.source !== context.sportsSource && adapterFor(cached.source)) return cached.stream;
+      const failed = [...new Set([...(context.failedSportsSources || []), context.sportsSource])];
+      if (!adapters.some(adapter => adapter.enabled() && !failed.includes(adapter.id))) return null;
+      return provider.resolve(context.eventId, { fresh: true, exclude: failed });
     },
   };
   return provider;

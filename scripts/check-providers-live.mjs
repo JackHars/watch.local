@@ -10,7 +10,7 @@ process.env.DATA_DIR ||= mkdtempSync(join(tmpdir(), 'watch-provider-health-'));
 const { PROVIDERS } = await import('../api/providers.mjs');
 const { defaultConfig } = await import('../api/settings.mjs');
 const liveProviders = Object.keys(defaultConfig().live);
-const supportedLive = ['sports', 'zlive', 'timstreams', 'strmfree'];
+const supportedLive = ['sports', 'zlive', 'timstreams', 'strmfree', 'scorezone', 'aurasports'];
 if (liveProviders.length !== supportedLive.length || liveProviders.some(id => !supportedLive.includes(id))) {
   throw new Error('Live provider health checks must cover every configured live provider.');
 }
@@ -213,10 +213,70 @@ async function checkStrmfree() {
   throw healthFailure('Strmfree returned no verified video from current events');
 }
 
+async function checkScorezone() {
+  const { publicFetch } = await import('../api/public-fetch.mjs');
+  const { createScorezoneSource } = await import('../api/scorezone.mjs');
+  const source = createScorezoneSource(), current = Date.now();
+  const date = new Date(current).toISOString().slice(0, 10).replaceAll('-', '');
+  const headers = { origin: 'https://scorezonetv.live', referer: 'https://scorezonetv.live/' };
+  const candidates = [];
+  for (const [sport, path, league] of [['nhl', 'hockey', 'nhl'], ['nba', 'basketball', 'nba']]) {
+    const response = await publicFetch(`https://testscore.pxxl.pro/api/livescore/${path}/${date}`, { headers, signal: AbortSignal.timeout(10000) });
+    if (!response.ok) continue;
+    const data = await response.json();
+    for (const stage of data.Stages || []) {
+      if (String(stage.CompN || stage.Cnm || '').toLowerCase() !== league) continue;
+      for (const row of stage.Events || []) {
+        const stamp = String(row.Esd || '');
+        if (!/^\d{14}$/.test(stamp)) continue;
+        const start = Date.UTC(+stamp.slice(0, 4), +stamp.slice(4, 6) - 1, +stamp.slice(6, 8), +stamp.slice(8, 10), +stamp.slice(10, 12), +stamp.slice(12, 14));
+        const home = row.T1?.[0]?.Nm, away = row.T2?.[0]?.Nm;
+        if (home && away && current - start >= 0 && current - start < 3 * 3600000) candidates.push({ title: `${home} vs ${away}`, sport, starts_at: start / 1000 });
+      }
+    }
+  }
+  if (!candidates.length) { console.log('::warning::ScoreZone catalog passed; no current NBA or NHL game was available to test playback.'); return 'catalog-only'; }
+  for (const event of candidates.slice(0, 8)) {
+    try {
+      const stream = await source.resolve(event, { signal: AbortSignal.timeout(20000) });
+      if (!validURL(stream.url)) throw new Error('missing stream');
+      console.log('PASS scorezone: live event video bytes verified');
+      return 'verified';
+    } catch (error) { console.log(`FAIL scorezone live candidate: ${reason(error)}`); }
+  }
+  throw healthFailure('ScoreZone returned no verified video from current NBA or NHL games');
+}
+
+async function checkAurasports() {
+  const { publicFetch } = await import('../api/public-fetch.mjs');
+  const { createAurasportsSource } = await import('../api/aurasports.mjs');
+  const response = await publicFetch('https://aurasports.cfd/api/schedule', { signal: AbortSignal.timeout(10000) });
+  if (!response.ok) throw new Error(`AuraSports returned HTTP ${response.status}.`);
+  const groups = await response.json(), current = Date.now();
+  const candidates = (Array.isArray(groups) ? groups : []).flatMap(group =>
+    (Array.isArray(group.schedule) ? group.schedule : []).filter(row =>
+      ['nba', 'nhl', 'cfb'].includes(group.category_name) && row.teams?.home?.name && row.teams?.away?.name &&
+      Number.isFinite(row.date) && current >= row.date && current - row.date < 4 * 3600000)
+      .map(row => ({ title: `${row.teams.home.name} vs ${row.teams.away.name}`, sport: group.category_name, starts_at: row.date / 1000 })));
+  if (!candidates.length) { console.log('::warning::AuraSports catalog passed; no current game was available to test playback.'); return 'catalog-only'; }
+  const source = createAurasportsSource();
+  for (const event of candidates.slice(0, 8)) {
+    try {
+      const stream = await source.resolve(event, { signal: AbortSignal.timeout(20000) });
+      if (!validURL(stream.url)) throw new Error('missing stream');
+      console.log('PASS aurasports: live event video bytes verified');
+      return 'verified';
+    } catch (error) { console.log(`FAIL aurasports live candidate: ${reason(error)}`); }
+  }
+  throw healthFailure('AuraSports returned no verified video from current games');
+}
+
 try {
   const result = kind === 'vod' ? await checkVod(provider)
     : provider === 'sports' ? await checkSports()
     : provider === 'strmfree' ? await checkStrmfree()
+    : provider === 'scorezone' ? await checkScorezone()
+    : provider === 'aurasports' ? await checkAurasports()
     : await checkChannel(provider);
   summary(result === 'verified' ? 'Verified' : 'Catalog only',
     result === 'verified' ? 'The public upstream returned actual video bytes.' : 'No active broadcast was available to validate playback.');

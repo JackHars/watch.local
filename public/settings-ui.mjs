@@ -4,7 +4,7 @@ const groups = [
     { id: 'playback', icon: 'play', label: 'Playback', description: 'Video quality, source caching, and wait limits.', keywords: 'resolution timeout buffering streams' },
     { id: 'providers', icon: 'layers', label: 'Movie & series providers', description: 'Choose sources and their fallback order.', keywords: 'priority enable disable reorder' },
     { id: 'health', icon: 'activity', label: 'Health check', description: 'Test every provider with Breaking Bad S1E1.', keywords: 'diagnostics streams playback video providers' },
-    { id: 'live', icon: 'tv', label: 'Live TV & sports', description: 'Channel sources and sports fallbacks.', keywords: 'zlive timstreams strmfree broadcasts' },
+    { id: 'live', icon: 'tv', label: 'Live TV & sports', description: 'Channel sources and sports fallbacks.', keywords: 'zlive timstreams strmfree scorezone aurasports broadcasts' },
     { id: 'library', icon: 'film', label: 'IPTV catalog', description: 'Library size, refresh schedule, and indexing.', keywords: 'movies series channels playlist pages' },
     { id: 'metadata', icon: 'info', label: 'Artwork & title info', description: 'Catalog information and your TMDB credential.', keywords: 'metadata api key token upcoming seasons episodes' },
   ] },
@@ -65,7 +65,7 @@ export function settingsPatch(section, values, playback) {
     case 'general': return { server: { ...values, port: Number(values.port), webPort80: values.webPort80 === 'on', requireLanLogin: values.requireLanLogin === 'on', mdns: values.mdns === 'on' } };
     case 'library': return { catalog: { pages: Number(values.pages), refreshHours: Number(values.refreshHours) } };
     case 'providers': return { playback: { order: [...playback.order], enabled: [...playback.enabled] } };
-    case 'live': return { live: { timstreams: values.liveTimstreams === 'on', zlive: values.liveZlive === 'on', sports: values.liveSports === 'on', strmfree: values.liveStrmfree === 'on' } };
+    case 'live': return { live: { timstreams: values.liveTimstreams === 'on', zlive: values.liveZlive === 'on', sports: values.liveSports === 'on', strmfree: values.liveStrmfree === 'on', scorezone: values.liveScorezone === 'on', aurasports: values.liveAurasports === 'on' } };
     case 'playback': return { playback: { quality: values.quality, providerTimeout: Number(values.providerTimeout), totalTimeout: Number(values.totalTimeout), cacheSeconds: Number(values.cacheSeconds) } };
     default: throw Error('Unknown settings section.');
   }

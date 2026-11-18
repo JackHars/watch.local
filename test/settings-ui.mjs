@@ -70,7 +70,7 @@ test('separate playback, provider, live and network forms preserve unrelated sav
 
     const playback = structuredClone(store.config().playback);
     await store.configure(settingsPatch('live', { liveTimstreams: 'on', liveSports: 'on' }));
-    assert.deepEqual(store.config().live, { timstreams: true, sports: true, zlive: false, strmfree: false });
+    assert.deepEqual(store.config().live, { timstreams: true, sports: true, zlive: false, strmfree: false, scorezone: false, aurasports: false });
     assert.deepEqual(store.config().playback, playback);
 
     await store.configure(settingsPatch('general', { name: 'Living room', host: '0.0.0.0', port: '8091', publicUrl: '', webPort80: 'on', mdns: 'on', mdnsHostname: 'watch' }));
