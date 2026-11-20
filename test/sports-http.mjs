@@ -45,7 +45,7 @@ test('sports Xtream import, EPG, live M3U, auth and live HLS proxy preserve qual
       assert.equal(r.status, 200); return r.json();
     }
     const categories = await api('get_live_categories'), rows = await api('get_live_streams');
-    const web=await fetch(base+'/ui/live').then(r=>r.json());assert.equal(web.items[0].artwork,event.icon);assert.equal(web.items[0].title,event.title);assert.equal(web.items[0].status,'LIVE');assert.equal(web.items[1].status,'UPCOMING');assert.equal(web.items[0].starts_at,event.starts_at);
+    const web=await fetch(base+'/ui/live').then(r=>r.json());assert.equal(web.items[0].artwork,event.icon);assert.equal(web.items[0].title,event.title);assert.equal(web.items[0].status,'UNVERIFIED');assert.equal(web.items[1].status,'UPCOMING');assert.equal(web.items[0].starts_at,event.starts_at);
     assert.equal((await fetch(base+'/live.mjs')).status,200);
     assert.match((await fetch(base+'/')).headers.get('content-security-policy'),/https:\/\/r2\.thesportsdb\.com/);
     assert.equal(rows.length, 2); assert.equal(categories.length, 1); assert.equal(rows[0].category_id, categories[0].category_id);
@@ -55,6 +55,7 @@ test('sports Xtream import, EPG, live M3U, auth and live HLS proxy preserve qual
     const xml = await fetch(base + '/xmltv.php?' + auth).then(r => r.text()); assert.match(xml, /Test Match &amp; Teams/); assert.match(xml, /<programme /);
     const playlist = await fetch(base + '/get.php?' + auth + '&content=live&output=m3u8').then(r => r.text()); assert.ok(playlist.includes(rows[0].direct_source)); assert.ok(playlist.includes('tvg-id="' + rows[0].epg_channel_id + '"')); assert.ok(!playlist.includes('/movie/'));
     let r = await fetch(rows[0].direct_source); assert.equal(r.status, 200); const master = await r.text(); assert.equal(master.match(/#EXT-X-STREAM-INF:/g).length, 1); assert.match(master, /1920x1080/);
+    assert.equal((await fetch(base+'/ui/live').then(r=>r.json())).items[0].status, 'LIVE', 'Successful video preflight marks the feed live');
     const variant = master.split('\n').find(l => l.startsWith('http')); const media = await fetch(variant).then(r => r.text()); assert.match(media, /MEDIA-SEQUENCE:10/); assert.doesNotMatch(media, /ENDLIST/);
     const keyURL = media.match(/URI="([^"]+)"/)[1]; r = await fetch(keyURL); assert.equal(r.status, 200); assert.equal((await r.arrayBuffer()).byteLength, 16);
     const segment = media.split('\n').find(l => l.startsWith('http')); r = await fetch(segment, { headers: { Range: 'bytes=0-31' } }); assert.equal(r.status, 206); assert.equal((await r.arrayBuffer()).byteLength, 32);

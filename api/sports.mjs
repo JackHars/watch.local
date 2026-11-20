@@ -176,7 +176,7 @@ export function createSportsSource({ fetchResource = fetch, hosts = HOSTS } = {}
 
 export function createSportsProvider({ directory, source = createSportsSource(), fallback = null, fallbackEnabled = () => true, fallbacks = [], now = Date.now, providerTimeout = 25000 }) {
   let state = { nextId: 1, events: {}, updatedAt: null, errors: [] }, refreshing, saveQueue = Promise.resolve();
-  const playing = new Map(), resolving = new Map();
+  const playing = new Map(), resolving = new Map(), confirmed = new Map();
   const adapters = [
     { id: 'primary', source, enabled: () => true },
     ...fallbacks,
@@ -185,6 +185,14 @@ export function createSportsProvider({ directory, source = createSportsSource(),
     ...(fallback ? [{ id: 'strmfree', source: fallback, enabled: fallbackEnabled }] : []),
   ];
   const adapterFor = id => adapters.find(adapter => adapter.id === id && adapter.enabled());
+  function displayStatus(event) {
+    const status = eventStatus(event, now);
+    if (status !== 'LIVE') return status;
+    // A schedule or live scoreboard confirms the event, not a playable feed.
+    // Only advertise live playback after a source has passed video preflight.
+    const selected = confirmed.get(event.id);
+    return selected && now() - selected.checkedAt < 120000 && adapterFor(selected.source) ? 'LIVE' : 'UNVERIFIED';
+  }
   async function attempt(work) {
     const controller = new AbortController(), signal = controller.signal;
     const timer = setTimeout(() => controller.abort(), providerTimeout);
@@ -265,16 +273,16 @@ export function createSportsProvider({ directory, source = createSportsSource(),
       try { state = JSON.parse(await readFile(path, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     },
     refresh, ensure,
-    status() { const events = listed(); return { events: events.length, inProgress: events.filter(e => eventStatus(e, now) === 'LIVE').length, withPlayer: events.filter(e => e.has_payload).length, updatedAt: state.updatedAt ? new Date(state.updatedAt).toISOString() : null, refreshing: Boolean(refreshing), errors: state.errors }; },
+    status() { const events = listed(); return { events: events.length, inProgress: events.filter(e => displayStatus(e) === 'LIVE').length, withPlayer: events.filter(e => e.has_payload).length, updatedAt: state.updatedAt ? new Date(state.updatedAt).toISOString() : null, refreshing: Boolean(refreshing), errors: state.errors }; },
     async categories() { const events = await ensure(); return Object.entries(SPORTS).filter(([sport]) => events.some(e => e.sport === sport)).map(([sport, name]) => ({ category_id: categoryID(sport), category_name: `Sports · ${name}`, parent_id: 0 })); },
     async rows(makeURL, category) {
       return (await ensure()).filter(e => !category || category === 'all' || categoryID(e.sport) === category).map((e, i) => ({ num: i + 1, name: `${SPORTS[e.sport]} · ${e.title}`, stream_type: 'live', stream_id: e.id, stream_icon: e.icon || '', epg_channel_id: channelID(e), added: e.added, category_id: categoryID(e.sport), custom_sid: '', tv_archive: 0, tv_archive_duration: 0, direct_source: makeURL(e.id), container_extension: 'm3u8' }));
     },
     async browserRows() {
-      const priority = { LIVE: 0, UPCOMING: 1, UNKNOWN: 2 };
+      const priority = { LIVE: 0, UNVERIFIED: 1, UPCOMING: 2, UNKNOWN: 3 };
       return (await ensure()).map(e => ({ stream_id: e.id, name: `${SPORTS[e.sport]} · ${e.title}`, title: e.title,
         sport: e.sport, category_name: SPORTS[e.sport], artwork: sportsArtworkURL(e.icon),
-        starts_at: e.starts_at, ends_at: e.ends_at, always_live: Boolean(e.always_live), status: eventStatus(e, now),
+        starts_at: e.starts_at, ends_at: e.ends_at, always_live: Boolean(e.always_live), status: displayStatus(e),
       })).sort((a,b) => priority[a.status] - priority[b.status] || a.starts_at - b.starts_at || a.stream_id - b.stream_id);
     },
     async epg(id) {
@@ -303,6 +311,7 @@ export function createSportsProvider({ directory, source = createSportsSource(),
       // player context stable during viewing; its media credentials renew below.
       if (!fresh && cached && now() - cached.used < 120000 && !exclude.includes(cached.source) && adapterFor(cached.source)) { cached.used = now(); return cached.stream; }
       const pending = (async () => {
+        if (fresh) confirmed.delete(Number(id));
         const candidates = adapters.filter(adapter => adapter.enabled() && !exclude.includes(adapter.id));
         const failed = [...exclude];
         let primaryError, last;
@@ -325,11 +334,13 @@ export function createSportsProvider({ directory, source = createSportsSource(),
               playing.set(Number(id), { stream, source: name, used: now() });
               while (playing.size > 100) playing.delete(playing.keys().next().value);
             }
+            confirmed.set(Number(id), { source: name, checkedAt: now() });
+            while (confirmed.size > 100) confirmed.delete(confirmed.keys().next().value);
             return stream;
           } catch (error) { last = error; failed.push(name); if (name === 'primary') primaryError = error; }
         }
         if (primaryError?.status === 503 && last?.status === 503 && eventStatus(stored, now) === 'UPCOMING') throw primaryError;
-        if (candidates.length > 1) throw fail(503, 'No playable broadcast is available for this event right now. All enabled sports sources were tried. A live game may not have a working video feed yet.');
+        if (candidates.length > 1) throw fail(503, 'No verified stream is available for this event yet. All enabled sports sources were checked; the listed start time may be an estimate, or none carries this broadcast.');
         throw last || fail(502, 'No enabled sports source could play this event.');
       })().finally(() => resolving.delete(resolvingKey));
       resolving.set(resolvingKey, pending);

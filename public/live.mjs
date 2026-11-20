@@ -12,12 +12,12 @@ const countText = items => {
 };
 
 function eventTime(item) {
-  if (item.always_live) return 'Live coverage';
+  if (item.always_live && item.status === 'LIVE') return 'Live coverage';
   const date = new Date(Number(item.starts_at) * 1000);
   if (!(item.starts_at > 0) || !Number.isFinite(date.getTime())) return 'Time to be announced';
   const today = new Date(), tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
   const day = date.toDateString() === today.toDateString() ? 'Today' : date.toDateString() === tomorrow.toDateString() ? 'Tomorrow' : new Intl.DateTimeFormat(undefined, { weekday:'short', month:'short', day:'numeric' }).format(date);
-  return `<time datetime="${date.toISOString()}">${escape(day)} · ${escape(new Intl.DateTimeFormat(undefined, { hour:'numeric', minute:'2-digit' }).format(date))}</time>`;
+  return `${item.status === 'UNVERIFIED' ? 'Listed start · ' : ''}<time datetime="${date.toISOString()}">${escape(day)} · ${escape(new Intl.DateTimeFormat(undefined, { hour:'numeric', minute:'2-digit' }).format(date))}</time>`;
 }
 
 function eventCard(item, icon) {
@@ -25,8 +25,8 @@ function eventCard(item, icon) {
   const initials = name => [...name.trim().split(/\s+/).map(word => Array.from(word)[0] || '')].slice(0, 3).join('').toUpperCase();
   const fallback = `<div class="live-art-fallback" aria-hidden="true">${stadium}<div class="live-matchup">${teams.length === 2 ? `<span>${escape(initials(teams[0]))}</span><small>VS</small><span>${escape(initials(teams[1]))}</span>` : `<span class="live-sport-mark">${escape(item.category_name || 'SPORTS')}</span>`}</div></div>`;
   return `<article class="live-card event-card" data-sport="${sports.has(item.sport) ? item.sport : 'other'}" data-stream-id="${item.stream_id}">
-    <div class="live-artwork">${fallback}${item.artwork ? `<img class="live-image" src="${escape(item.artwork)}" alt="" width="1280" height="720" loading="lazy" decoding="async">` : ''}<div class="live-art-labels"><span class="live-league">${escape(item.category_name)}</span><span class="live-status ${live ? 'is-live' : ''}">${live ? '<span aria-hidden="true"></span>Live' : item.status === 'UPCOMING' ? 'Upcoming' : 'Event'}</span></div></div>
-    <div class="live-card-body"><h3>${escape(item.title)}</h3><p class="live-time">${icon('clock')}${eventTime(item)}</p><button class="btn primary live-watch" data-action="play" data-type="live" data-provider="sports" data-id="${item.stream_id}" data-title="${escape(item.name)}" aria-label="Watch ${escape(item.title)}">${icon('play')}${live ? 'Watch live' : 'Watch event'}</button></div></article>`;
+    <div class="live-artwork">${fallback}${item.artwork ? `<img class="live-image" src="${escape(item.artwork)}" alt="" width="1280" height="720" loading="lazy" decoding="async">` : ''}<div class="live-art-labels"><span class="live-league">${escape(item.category_name)}</span><span class="live-status ${live ? 'is-live' : ''}">${live ? '<span aria-hidden="true"></span>Live' : item.status === 'UNVERIFIED' ? 'Feed unverified' : item.status === 'UPCOMING' ? 'Upcoming' : 'Event'}</span></div></div>
+    <div class="live-card-body"><h3>${escape(item.title)}</h3><p class="live-time">${icon('clock')}${eventTime(item)}</p><button class="btn primary live-watch" data-action="play" data-type="live" data-provider="sports" data-id="${item.stream_id}" data-title="${escape(item.name)}" aria-label="${item.status === 'UNVERIFIED' ? 'Check stream for' : 'Watch'} ${escape(item.title)}">${icon('play')}${item.status === 'UNVERIFIED' ? 'Check stream' : live ? 'Watch live' : 'Watch event'}</button></div></article>`;
 }
 
 function channelCard(item, icon) {

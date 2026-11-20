@@ -137,7 +137,7 @@ test('stable IDs, categories, programme guides, refresh coalescing and preservat
     await Promise.all([p.refresh(), p.refresh()]); assert.equal(calls, 11);
     const rows = await p.rows(id => `http://local/live/${id}.m3u8`), id = rows[0].stream_id;
     assert.equal(rows.length, 1); assert.equal(rows[0].stream_type, 'live'); assert.equal(rows[0].epg_channel_id, `sports-${id}`); assert.equal(rows[0].tv_archive, 0);
-    const browser=(await p.browserRows())[0];assert.equal(browser.stream_id,id);assert.equal(browser.title,event.title);assert.equal(browser.sport,'nba');assert.equal(browser.category_name,'NBA');assert.equal(browser.artwork,event.icon);assert.equal(browser.starts_at,start);assert.equal(browser.status,'LIVE');assert.equal(browser.always_live,false);
+    const browser=(await p.browserRows())[0];assert.equal(browser.stream_id,id);assert.equal(browser.title,event.title);assert.equal(browser.sport,'nba');assert.equal(browser.category_name,'NBA');assert.equal(browser.artwork,event.icon);assert.equal(browser.starts_at,start);assert.equal(browser.status,'UNVERIFIED');assert.equal(browser.always_live,false);
     assert.deepEqual(await p.rows(String, 'unknown'), []);
     assert.equal((await p.categories())[0].category_name, 'Sports · NBA');
     const guide = await p.epg(id), program = guide.epg_listings[0];
@@ -146,6 +146,36 @@ test('stable IDs, categories, programme guides, refresh coalescing and preservat
     fail = true; await p.refresh(); assert.equal((await p.rows(String))[0].stream_id, id); assert.equal(p.status().errors.length, 1);
     const restarted = createSportsProvider({ directory, source, now: () => time }); await restarted.initialize(); assert.equal((await restarted.rows(String))[0].stream_id, id);
     assert.equal(p.status().withPlayer, 0);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('an estimated live start does not advertise a playable feed until a backup passes preflight', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'watchlocal-sports-verified-'));
+  let clock = time, available = false, checks = 0;
+  const boxing = { ...event, sport: 'boxing', slug: 'boxing/2027-01-15/fighter-a-vs-fighter-b' };
+  const source = {
+    async list(sport) { return { events: sport === 'boxing' ? [boxing] : [], errors: [] }; },
+    async resolve() { throw Error('The primary has no broadcast URL'); },
+  };
+  const backup = {
+    async resolve() { return { url: 'https://video.test/boxing.m3u8' }; },
+    async verify() { checks++; if (!available) throw Error('No video segments'); },
+  };
+  try {
+    const provider = createSportsProvider({ directory, source, fallbacks: [{ id: 'backup', source: backup, enabled: () => true }], now: () => clock });
+    await provider.initialize();
+    const [row] = await provider.browserRows();
+    assert.equal(row.status, 'UNVERIFIED');
+    assert.equal(provider.status().inProgress, 0);
+    await assert.rejects(provider.resolve(row.stream_id), /No verified stream is available/);
+    assert.equal((await provider.browserRows())[0].status, 'UNVERIFIED');
+    available = true;
+    assert.equal((await provider.resolve(row.stream_id)).url, 'https://video.test/boxing.m3u8');
+    assert.equal(checks, 2);
+    assert.equal((await provider.browserRows())[0].status, 'LIVE');
+    assert.equal(provider.status().inProgress, 1);
+    clock += 120001;
+    assert.equal((await provider.browserRows())[0].status, 'UNVERIFIED', 'A past preflight must not imply a current video feed');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 

@@ -187,6 +187,6 @@ test('exhausting enabled sports providers returns an availability error instead 
   const fallback = { resolve: async () => { tried.push('fallback'); throw Object.assign(Error('Strmfree returned HTTP 403.'), { status: 502 }); } };
   const provider = createSportsProvider({ directory, source, fallback, now: () => now }); await provider.initialize();
   const [{ stream_id }] = await provider.rows(String);
-  await assert.rejects(provider.resolve(stream_id), error => error.status === 503 && /All enabled sports sources were tried/.test(error.message) && !error.message.includes('403'));
+  await assert.rejects(provider.resolve(stream_id), error => error.status === 503 && /All enabled sports sources were checked/.test(error.message) && !error.message.includes('403'));
   assert.deepEqual(tried, ['primary', 'fallback']);
 });
