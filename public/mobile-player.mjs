@@ -1,6 +1,13 @@
+function appleMobile(device) {
+  return /iPhone|iPad|iPod/i.test(device.userAgent || '') || (device.platform === 'MacIntel' && device.maxTouchPoints > 1);
+}
+
 export function mobilePlaybackDevice(device = navigator) {
-  return Boolean(device.userAgentData?.mobile || /Android|iPhone|iPad|iPod/i.test(device.userAgent || '')
-    || (device.platform === 'MacIntel' && device.maxTouchPoints > 1));
+  return Boolean(device.userAgentData?.mobile || /Android/i.test(device.userAgent || '') || appleMobile(device));
+}
+
+export function nativeMobileHls(video, device = navigator) {
+  return appleMobile(device) && Boolean(video.canPlayType('application/vnd.apple.mpegurl'));
 }
 
 export async function mobilePlaybackError(source, { fetchResource = fetch, signal } = {}) {
@@ -15,79 +22,87 @@ export async function mobilePlaybackError(source, { fetchResource = fetch, signa
 
 // Call start() in the tap handler, before awaiting provider or progress requests.
 // iPhone automatically presents videos without playsinline in its native player.
-export function mobilePlayer(video, { onEnter = () => {}, onExit = () => {}, onBlocked = () => {}, document: doc = document } = {}) {
-  let stopped = false, entered = false, replacing = false, attempt = 0, presentationTimer;
+export function mobilePlayer(video, { onEnter = () => {}, onExit = () => {}, onShowVideo = () => {}, document: doc = document } = {}) {
+  let stopped = false, entered = false, replacing = false, attempt = 0;
   const listeners = [];
   const listen = (target, event, callback) => {
     target.addEventListener(event, callback);
     listeners.push(() => target.removeEventListener(event, callback));
   };
+  const documentFullscreen = () => doc.fullscreenElement || doc.webkitFullscreenElement;
+  const inFullscreen = () => documentFullscreen() === video || video.webkitDisplayingFullscreen || video.webkitPresentationMode === 'fullscreen';
+  const inPictureInPicture = () => video.webkitPresentationMode === 'picture-in-picture' || doc.pictureInPictureElement === video;
   const exit = () => {
-    if (stopped || video.webkitPresentationMode === 'picture-in-picture') return;
+    if (stopped || !entered || inPictureInPicture()) return;
     entered = false;
     if (video.error || replacing) return;
     onExit();
   };
   const enter = () => {
     if (stopped || entered) return;
-    entered = true; clearTimeout(presentationTimer); onEnter();
+    entered = true; onEnter();
   };
+  const presentationChanged = () => { if (inFullscreen()) enter(); else exit(); };
   listen(video, 'webkitbeginfullscreen', enter);
   listen(video, 'webkitendfullscreen', exit);
-  listen(doc, 'fullscreenchange', () => {
-    if (doc.fullscreenElement === video) enter();
-    else if (entered) exit();
-  });
+  listen(video, 'webkitpresentationmodechanged', presentationChanged);
+  listen(doc, 'fullscreenchange', presentationChanged);
+  listen(doc, 'webkitfullscreenchange', presentationChanged);
   video.playsInline = false;
   video.removeAttribute('playsinline');
   video.removeAttribute('webkit-playsinline');
   video.controls = true;
-  function fullscreen(reportBlocked = false) {
-    if (stopped) return;
-    if (doc.fullscreenElement === video || video.webkitDisplayingFullscreen) { enter(); return; }
-    const current = attempt;
-    const blocked = () => { if (reportBlocked && !stopped && !entered && current === attempt && !video.error) onBlocked(); };
+  function fullscreen() {
+    if (stopped || entered || inPictureInPicture()) return;
+    if (inFullscreen()) { enter(); return; }
     try {
       if (video.webkitEnterFullscreen) { video.webkitEnterFullscreen(); return; }
     } catch { /* iOS may wait for metadata; removing playsinline handles iPhone. */ }
-    try { video.requestFullscreen?.()?.catch(blocked); } catch { blocked(); }
+    try {
+      if (video.webkitSupportsPresentationMode?.('fullscreen') && video.webkitSetPresentationMode) {
+        video.webkitSetPresentationMode('fullscreen'); return;
+      }
+    } catch { /* Presentation may still be starting. */ }
+    try {
+      const request = video.requestFullscreen || video.webkitRequestFullscreen;
+      request?.call(video)?.catch(() => {});
+    } catch { /* The video can still play in the viewport. */ }
   }
-  // iPad may require metadata before accepting its native fullscreen request.
-  listen(video, 'loadedmetadata', () => { if (!entered) fullscreen(); });
+  function showVideo() {
+    if (stopped || video.error || inPictureInPicture()) return;
+    if (inFullscreen()) enter();
+    else if (!entered) onShowVideo();
+  }
+  listen(video, 'loadedmetadata', fullscreen);
   listen(video, 'playing', () => {
     replacing = false;
-    if (entered) return;
-    fullscreen(true);
-    // Some browsers silently ignore fullscreen. Keep a way to provide another
-    // gesture rather than leaving an invisible video playing behind the page.
-    clearTimeout(presentationTimer);
-    presentationTimer = setTimeout(() => {
-      if (stopped || entered || video.error) return;
-      if (doc.fullscreenElement === video || video.webkitDisplayingFullscreen) enter();
-      else onBlocked();
-    }, 800);
+    fullscreen();
+    // Playback and the native fullscreen transition complete independently.
+    // Show the same playing video until the browser takes over.
+    showVideo();
   });
   return {
     start(source) {
       if (stopped) return;
       const current = ++attempt;
-      clearTimeout(presentationTimer);
       if (source) { replacing = Boolean(video.src); video.src = source; }
       // Both operations run in the original user gesture, even if loading is slow.
+      const playRejected = error => {
+        if (current === attempt && error?.name === 'NotAllowedError') showVideo();
+      };
       try {
-        video.play()?.catch(error => {
-          if (!stopped && current === attempt && error.name === 'NotAllowedError') onBlocked();
-        });
-      } catch { onBlocked(); }
+        video.play()?.catch(playRejected);
+      } catch (error) { playRejected(error); }
       fullscreen();
     },
     stop() {
       stopped = true;
-      clearTimeout(presentationTimer);
       listeners.forEach(remove => remove());
       try {
-        if (doc.fullscreenElement === video) doc.exitFullscreen?.()?.catch(() => {});
-        else if (video.webkitDisplayingFullscreen) video.webkitExitFullscreen?.();
+        const leave = doc.exitFullscreen || doc.webkitExitFullscreen;
+        if (documentFullscreen() === video && leave) leave.call(doc)?.catch(() => {});
+        else if (inFullscreen() && video.webkitExitFullscreen) video.webkitExitFullscreen();
+        else if (video.webkitPresentationMode === 'fullscreen') video.webkitSetPresentationMode?.('inline');
       } catch { /* The browser may already have dismissed its player. */ }
     },
   };

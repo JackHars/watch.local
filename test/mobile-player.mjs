@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mobilePlaybackDevice, mobilePlaybackError, mobilePlayer } from '../public/mobile-player.mjs';
+import { mobilePlaybackDevice, mobilePlaybackError, mobilePlayer, nativeMobileHls } from '../public/mobile-player.mjs';
 
 function fixture() {
   const calls = [], doc = new EventTarget(), video = new EventTarget();
@@ -31,6 +31,14 @@ test('mobile devices use fullscreen while desktop and touch laptops keep the des
   assert.equal(mobilePlaybackDevice({ platform: 'MacIntel', maxTouchPoints: 0 }), false);
 });
 
+test('iOS browsers use native HLS for the first tap, including iPad desktop mode', () => {
+  const hls = { canPlayType: type => type === 'application/vnd.apple.mpegurl' ? 'probably' : '' };
+  assert.equal(nativeMobileHls(hls, { userAgent: 'iPhone; CriOS', vendor: 'Google Inc.' }), true);
+  assert.equal(nativeMobileHls(hls, { platform: 'MacIntel', maxTouchPoints: 5 }), true);
+  assert.equal(nativeMobileHls(hls, { userAgent: 'Android Mobile' }), false);
+  assert.equal(nativeMobileHls({ canPlayType: () => '' }, { userAgent: 'iPhone' }), false);
+});
+
 test('source, play and native fullscreen are started synchronously in the original tap', () => {
   const f = fixture(); let exits = 0;
   const player = mobilePlayer(f.video, { document: f.doc, onExit: () => { exits++; } });
@@ -53,11 +61,28 @@ test('standard fullscreen is requested during the tap when native entry needs me
   player.stop(); assert.equal(f.doc.fullscreenElement, null); assert.equal(exits, 0);
 });
 
-test('blocked playback provides a retry without muting audio, and PiP does not close playback', async () => {
-  const f = fixture(); let blocked = 0, exits = 0;
+test('Safari presentation mode opens the native player and a late play denial leaves it visible', async () => {
+  const f = fixture(), states = [];
+  f.video.webkitEnterFullscreen = () => { throw new DOMException('Not ready', 'InvalidStateError'); };
+  f.video.webkitSupportsPresentationMode = mode => mode === 'fullscreen';
+  f.video.webkitSetPresentationMode = mode => {
+    f.video.webkitPresentationMode = mode;
+    f.event(f.video, 'webkitpresentationmodechanged');
+  };
+  f.video.play = () => Promise.reject(new DOMException('Playback permission required', 'NotAllowedError'));
+  const player = mobilePlayer(f.video, { document: f.doc, onEnter: () => states.push('fullscreen'), onShowVideo: () => states.push('viewport') });
+  player.start('/live.m3u8'); await Promise.resolve();
+  assert.deepEqual(states, ['fullscreen']);
+  player.stop(); assert.equal(f.video.webkitPresentationMode, 'inline');
+});
+
+test('a browser play denial exposes the native controls and PiP keeps the session open', async () => {
+  const f = fixture(); let shown = 0, exits = 0;
   f.video.play = () => Promise.reject(new DOMException('Gesture required', 'NotAllowedError'));
-  const player = mobilePlayer(f.video, { document: f.doc, onBlocked: () => { blocked++; }, onExit: () => { exits++; } });
-  player.start('/movie.m3u8'); await Promise.resolve(); assert.equal(blocked, 1); assert.notEqual(f.video.muted, true);
+  const player = mobilePlayer(f.video, { document: f.doc, onShowVideo: () => { shown++; }, onExit: () => { exits++; } });
+  player.start('/movie.m3u8'); await Promise.resolve(); assert.equal(shown, 1); assert.notEqual(f.video.muted, true);
+  assert.equal(f.video.controls, true);
+  f.event(f.video, 'webkitbeginfullscreen');
   f.video.webkitPresentationMode = 'picture-in-picture';
   f.event(f.video, 'webkitendfullscreen'); assert.equal(exits, 0);
   player.stop();
@@ -84,22 +109,38 @@ test('fullscreen entry notifies the page once and metadata retries a pending nat
   player.stop();f.event(f.video,'webkitbeginfullscreen');assert.equal(entries,1);
 });
 
-test('silent fullscreen refusal requests a new gesture, while stopping cancels the prompt', async t => {
+test('slow presentation keeps the original video playing until WebKit reports fullscreen', t => {
   t.mock.timers.enable({apis:['setTimeout']});
-  const f=fixture();let blocked=0;
-  const player=mobilePlayer(f.video,{document:f.doc,onBlocked:()=>blocked++});
-  player.start('/movie.m3u8');f.event(f.video,'playing');
-  t.mock.timers.tick(799);assert.equal(blocked,0);
-  t.mock.timers.tick(1);assert.equal(blocked,1);
-  player.start();f.event(f.video,'playing');player.stop();
-  t.mock.timers.tick(1000);assert.equal(blocked,1);
+  const f=fixture(), states=[];
+  const player=mobilePlayer(f.video,{document:f.doc,onShowVideo:()=>states.push('video'),onEnter:()=>states.push('fullscreen'),onExit:()=>states.push('closed')});
+  player.start('/live.m3u8');
+  t.mock.timers.tick(10000);assert.deepEqual(states, []);
+  f.event(f.video,'playing');t.mock.timers.tick(2500);
+  assert.deepEqual(states, ['video']);
+  f.video.webkitPresentationMode='fullscreen';f.event(f.video,'webkitpresentationmodechanged');
+  f.event(f.video,'webkitbeginfullscreen');
+  assert.deepEqual(states, ['video','fullscreen']);
+  assert.deepEqual(f.calls.filter(([name])=>name==='play'), [['play','/live.m3u8']]);
+  f.video.webkitPresentationMode='inline';f.event(f.video,'webkitpresentationmodechanged');
+  f.event(f.video,'webkitendfullscreen');assert.deepEqual(states, ['video','fullscreen','closed']);
+  player.stop();
 });
 
-test('a rejected play attempt cannot show a stale gesture prompt after a newer attempt or cancellation', async () => {
-  const f=fixture();const rejections=[];let blocked=0;
+test('a rejected standard fullscreen request leaves playing video visible', async () => {
+  const f=fixture();let shown=0;
+  delete f.video.webkitEnterFullscreen;
+  f.video.requestFullscreen=()=>Promise.reject(new DOMException('No transient activation','NotAllowedError'));
+  const player=mobilePlayer(f.video,{document:f.doc,onShowVideo:()=>shown++});
+  player.start('/live.m3u8');f.event(f.video,'playing');await Promise.resolve();
+  assert.equal(shown,1);assert.equal(f.calls.filter(([name])=>name==='play').length,1);
+  player.stop();
+});
+
+test('a rejected play attempt cannot resurface old controls after replacement or cancellation', async () => {
+  const f=fixture();const rejections=[];let shown=0;
   f.video.play=()=>new Promise((resolve,reject)=>rejections.push(reject));
-  const player=mobilePlayer(f.video,{document:f.doc,onBlocked:()=>blocked++});
+  const player=mobilePlayer(f.video,{document:f.doc,onShowVideo:()=>shown++});
   player.start('/first.m3u8');player.start('/fallback.m3u8');
-  rejections[0](new DOMException('Old request','NotAllowedError'));await Promise.resolve();assert.equal(blocked,0);
-  player.stop();rejections[1](new DOMException('Cancelled','NotAllowedError'));await Promise.resolve();assert.equal(blocked,0);
+  rejections[0](new DOMException('Old request','NotAllowedError'));await Promise.resolve();assert.equal(shown,0);
+  player.stop();rejections[1](new DOMException('Cancelled','NotAllowedError'));await Promise.resolve();assert.equal(shown,0);
 });

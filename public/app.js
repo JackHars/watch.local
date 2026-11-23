@@ -1,7 +1,7 @@
 import { createNavigation } from './navigation.mjs';
 import { trackPlayback, formatTimeLeft } from './watch-progress.mjs';
 import { mountEpisodeGrid } from './episodes.mjs';
-import { mobilePlaybackDevice, mobilePlaybackError, mobilePlayer } from './mobile-player.mjs';
+import { mobilePlaybackDevice, mobilePlaybackError, mobilePlayer, nativeMobileHls } from './mobile-player.mjs';
 import { profileAvatar, profilePicker, openProfileDialog, rememberedProfileId, rememberProfile } from './profiles.mjs';
 import { homeCategories, featuredItems, mountHeroCarousel } from './home.mjs';
 import { livePage, mountLivePage } from './live.mjs';
@@ -325,6 +325,7 @@ async function copyValue(id){const input=document.getElementById(id);try{if(navi
 let hls,playController,lastPlayback,playbackProgress,mobileSession,mobileSurface,mobileCleanup;
 function closePlayer(refresh=true){const saved=playbackProgress?.stop()||Promise.resolve();playbackProgress=null;playController?.abort();mobileSession?.stop();mobileSession=null;mobileCleanup?.();mobileCleanup=null;hls?.destroy();hls=null;const video=$('video',mobileSurface||$('#player'));if(video){video.pause();video.removeAttribute('src');video.load();}mobileSurface?.remove();mobileSurface=null;$('#player').close();$('#player').innerHTML='';if(refresh)saved.then(refreshWatchHistory);return saved;}
 function nativeHls(video,provider){
+  if(nativeMobileHls(video))return true;
   // Chromium can advertise native HLS but reject otherwise playable streams.
   // Keep Apple's native fullscreen player and use Hls.js on Chromium.
   return healthPlayerMode(video,window.Hls,navigator.vendor)==='native'&&(provider!=='zlive'||typeof video.webkitEnterFullscreen==='function'||!window.Hls?.isSupported());
@@ -341,24 +342,23 @@ function playOnMobile(data,identity,saved,controller,fresh){
   const vod=['movie','tv'].includes(data.type),query=new URLSearchParams(Object.entries(identity).filter(([,value])=>value!==null));
   const player=mobileSurface=document.createElement('div');player.id='mobile-player';
   const activity=`<svg viewBox="0 0 32 32" focusable="false">${Array.from({length:12},(_,i)=>`<path d="M16 4v5" transform="rotate(${i*30} 16 16)" style="animation-delay:${((i-12)/12).toFixed(3)}s"/>`).join('')}</svg>`;
-  player.innerHTML=`<video controls preload="auto" tabindex="-1" aria-label="Video player"></video><div class="mobile-playback-notice" data-state="loading" hidden><span class="spinner playback-activity" aria-hidden="true">${activity}</span><span class="mobile-playback-message sr-only" role="status" aria-live="polite">Loading video…</span><button class="btn primary small" data-action="open-fullscreen" hidden>${icon('play')}Play video</button><button class="btn ghost small" data-action="retry-play" hidden>Try again</button><button class="icon-btn" data-action="close-player" aria-label="Cancel playback">${icon('close')}</button></div>`;
+  player.innerHTML=`<video controls preload="auto" tabindex="-1" aria-label="Video player"></video><button class="icon-btn mobile-video-close" data-action="close-player" aria-label="Close video">${icon('close')}</button><div class="mobile-playback-notice" hidden><span class="spinner playback-activity" aria-hidden="true">${activity}</span><span class="mobile-playback-message sr-only" role="status" aria-live="polite">Loading video…</span><button class="btn ghost small" data-action="retry-play" hidden>Try again</button><button class="icon-btn" data-action="close-player" aria-label="Cancel playback">${icon('close')}</button></div>`;
   document.body.append(player);
   const video=$('video',player),notice=$('.mobile-playback-notice',player),status=$('.mobile-playback-message',player);
   let noticeTimer;
   const showNotice=(mode,message='Loading video…')=>{
     if(controller.signal.aborted)return;
-    clearTimeout(noticeTimer);notice.dataset.state=mode;status.textContent=message;
+    clearTimeout(noticeTimer);player.dataset.state=mode;status.textContent=message;
+    $('#app').inert=mode==='video';
     status.classList.toggle('sr-only',mode==='loading');
     $('.spinner',notice).hidden=mode!=='loading';
-    $('[data-action="open-fullscreen"]',notice).hidden=mode!=='blocked';
     $('[data-action="retry-play"]',notice).hidden=mode!=='error';
-    notice.hidden=mode==='playing'||mode==='loading';
+    notice.hidden=mode!=='error';
     if(mode==='loading')noticeTimer=setTimeout(()=>{if(!controller.signal.aborted)notice.hidden=false;},180);
   };
-  mobileCleanup=()=>clearTimeout(noticeTimer);
+  mobileCleanup=()=>{clearTimeout(noticeTimer);$('#app').inert=false;};
   showNotice('loading');
   document.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();closePlayer();}},{signal:controller.signal});
-  const blocked=()=>{if(controller.signal.aborted)return;video.pause();showNotice('blocked','Tap to open the video.');};
   const fail=message=>{if(controller.signal.aborted)return;mobileSession?.stop();video.pause();showNotice('error',message);};
   if(vod){
     const item={...identity,title:data.title||'Now playing',poster_path:data.poster_path,backdrop_path:data.backdrop_path};
@@ -370,15 +370,15 @@ function playOnMobile(data,identity,saved,controller,fresh){
     api(`title?type=${data.type}&id=${data.id}`,{signal:controller.signal}).then(metadata=>{if(!controller.signal.aborted)Object.assign(item,{title:title(metadata),poster_path:metadata.poster_path,backdrop_path:metadata.backdrop_path});}).catch(()=>{});
   }
   let recovery;
-  mobileSession=mobilePlayer(video,{onEnter:()=>showNotice('playing'),onExit:()=>{if(!controller.signal.aborted&&!recovery?.busy)closePlayer();},onBlocked:blocked});
+  const session=mobileSession=mobilePlayer(video,{onEnter:()=>showNotice('fullscreen'),onShowVideo:()=>showNotice('video'),onExit:()=>{if(!controller.signal.aborted&&!recovery?.busy)closePlayer();}});
   if(fresh)query.set('fresh','1');
   query.set('requestId',[...crypto.getRandomValues(new Uint8Array(16))].map(value=>value.toString(16).padStart(2,'0')).join(''));
   const source='/ui/playback.m3u8?'+query;
   const attach=out=>{
     hls?.destroy();hls=null;
     showNotice('loading');
-    if(nativeHls(video,out.provider))mobileSession.start(out.url);
-    else if(window.Hls?.isSupported())attachHls(video,out.url,()=>mobileSession.start(),handleFailure);
+    if(nativeHls(video,out.provider))session.start(out.url);
+    else if(window.Hls?.isSupported())attachHls(video,out.url,()=>session.start(),handleFailure);
     else fail('This browser does not support HLS playback.');
   };
   if(vod)recovery=createPlaybackRecovery({signal:controller.signal,
@@ -393,10 +393,10 @@ function playOnMobile(data,identity,saved,controller,fresh){
   };
   video.addEventListener('error',()=>handleFailure('This stream could not be played.'));
   // Do not await progress or stream resolution here: playback must start in this tap.
-  if(nativeHls(video,data.provider))mobileSession.start(source);
+  if(nativeHls(video,data.provider))session.start(source);
   else if(window.Hls?.isSupported()){
-    attachHls(video,source,()=>video.play().catch(error=>{if(error.name==='NotAllowedError')blocked();}),handleFailure);
-    mobileSession.start();
+    attachHls(video,source,()=>session.start(),handleFailure);
+    session.start();
   }else fail('This browser does not support HLS playback.');
 }
 async function play(data,fresh=false){if(!state.profile)return profilesPage();const profileId=state.profile.id;lastPlayback={...data};const saved=closePlayer(false);const controller=new AbortController();playController=controller;
@@ -454,7 +454,6 @@ document.addEventListener('click',async e=>{if(e.target.closest('a[href="#search
     if(action==='episodes'){if(location.hash.startsWith('#title'))$('#episodes')?.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});else location.hash=`title/tv/${button.dataset.id}`;}
     if(action==='play')await play(button.dataset);
     if(action==='retry-play')await play(lastPlayback,true);
-    if(action==='open-fullscreen')mobileSession?.start();
     if(action==='restart-play'){const video=$('video',$('#player'));if(playbackProgress)playbackProgress.restart();else if(video)video.currentTime=0;video?.play().catch(()=>{});}
     if(action==='close-player')closePlayer();
     if(action==='save')saveTitle();

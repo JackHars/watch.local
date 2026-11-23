@@ -43,10 +43,15 @@ html[data-input=touch] .media-card:focus-visible .card-image{box-shadow:none}
 #player video:fullscreen{width:100%;height:100%;max-height:none;margin:0;aspect-ratio:auto;object-fit:contain;background:#000}
 #player video:-webkit-full-screen{width:100%;height:100%;max-height:none;margin:0;aspect-ratio:auto;object-fit:contain;background:#000}
 
-/* Mobile enters the native player directly; its video has no inline surface. */
-#mobile-player>video{position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none}
-#mobile-player>video:fullscreen{inset:0;width:100%;height:100%;opacity:1;pointer-events:auto;object-fit:contain;background:#000}
-#mobile-player>video:-webkit-full-screen{inset:0;width:100%;height:100%;opacity:1;pointer-events:auto;object-fit:contain;background:#000}
+/* Keep the video laid out behind the library while its stream resolves. */
+body:has(#mobile-player) #app{min-height:100dvh;background:var(--bg)}
+#mobile-player>video{position:fixed;inset:0;width:100%;height:100%;height:100dvh;object-fit:contain;background:#000;z-index:-1;pointer-events:none}
+#mobile-player:is([data-state=video],[data-state=fullscreen])>video{z-index:140;pointer-events:auto}
+#mobile-player>video:fullscreen{pointer-events:auto}
+#mobile-player>video:-webkit-full-screen{pointer-events:auto}
+body:has(#mobile-player[data-state=video]){overflow:hidden}
+.mobile-video-close{display:none;position:fixed;z-index:141;top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));width:44px;height:44px;background:#1c1c20e8}
+#mobile-player[data-state=video]>.mobile-video-close{display:grid}
 .mobile-playback-notice{position:fixed;z-index:150;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:14px;width:max-content;max-width:calc(100vw - 40px);padding:8px 8px 8px 20px;border:1px solid #ffffff1f;border-radius:999px;background:linear-gradient(145deg,#ffffff0a,transparent 48%),#1c1c20eb;box-shadow:inset 0 1px 0 #ffffff12,inset 0 -1px 0 #0003,0 8px 32px #0005;backdrop-filter:blur(20px) saturate(140%);-webkit-backdrop-filter:blur(20px) saturate(140%)}
 .mobile-playback-notice .spinner{display:grid;place-items:center;width:26px;height:26px;margin:0;border:0;border-radius:0;color:#f5f5f7;animation:none;flex:none}
 .playback-activity svg{width:100%;height:100%;overflow:visible}
@@ -58,8 +63,8 @@ html[data-input=touch] .media-card:focus-visible .card-image{box-shadow:none}
 @media(prefers-reduced-motion:reduce){.playback-activity path{animation:none;opacity:.65}}
 @media(prefers-reduced-transparency:reduce),(prefers-contrast:more){.mobile-playback-notice{background:#1c1c20;backdrop-filter:none;-webkit-backdrop-filter:none}}
 .mobile-playback-message{font-size:14px;line-height:1.5;overflow-wrap:anywhere}
-.mobile-playback-notice[data-state=error],.mobile-playback-notice[data-state=blocked]{flex-wrap:wrap;justify-content:center;padding:16px;border-radius:22px}
-.mobile-playback-notice[data-state=error] .mobile-playback-message,.mobile-playback-notice[data-state=blocked] .mobile-playback-message{flex-basis:100%;text-align:center}
+#mobile-player[data-state=error] .mobile-playback-notice{flex-wrap:wrap;justify-content:center;padding:16px;border-radius:22px}
+#mobile-player[data-state=error] .mobile-playback-message{flex-basis:100%;text-align:center}
 .mobile-playback-notice[hidden],.mobile-playback-notice [hidden]{display:none}
 
 /* Floating navigation. Desktop retains its centered navigation capsule. */
