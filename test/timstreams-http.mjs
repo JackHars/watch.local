@@ -29,29 +29,35 @@ test('one channel card uses Tim Streams when primary video fails, with native/Xt
   upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');
   const originalFetch = globalThis.fetch, fixture = localUpstream(upstream), remote = fixture.origin;
   globalThis.fetch = fixture.fetch;
-  const channel = { key: 'auto-cnn', name: 'CNN', group: 'Other', live: true, sources: ['primary'] };
+  const channel = { key: 'auto-bbc-one-london', name: 'BBC One London', group: 'Other', live: true, sources: ['primary'] };
   try {
     await initializeIPTV({ sportsDirectory: directory,
       sportsSource: { list: async () => ({ events: [], errors: [] }) },
       zliveSource: { list: async () => [channel], resolve: async () => ({ url: remote + '/primary/live.m3u8', headers: {} }) },
-      timstreamsSource: { list: async () => [{ ...channel, provider: 'timstreams', key: 'cnn', sources: ['https://player.test/cnn'] }, { ...channel, provider: 'timstreams', key: 'new', name: 'New Network', category: 'news', sources: ['https://player.test/new'] }], resolve: async () => { timResolves++; return { url: remote + '/tim/live.m3u8', headers }; } },
+      timstreamsSource: {
+        list: async () => [
+          { ...channel, provider: 'timstreams', key: 'bbc-one-london', sources: ['https://player.test/london'] },
+          { ...channel, provider: 'timstreams', key: 'new', name: 'New Network', category: 'entertainment', sources: ['https://player.test/new'] },
+        ],
+        resolve: async () => { timResolves++; if (timDown) throw Error('Feed unavailable'); return { url: remote + '/tim/live.m3u8', headers }; },
+      },
     });
     server = createServer(); server.listen(0, '127.0.0.1'); await once(server, 'listening');
     const base = `http://127.0.0.1:${server.address().port}`;
     const request = (path, value, method = 'POST') => fetch(base + path, { method, headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify(value) });
     const web = await fetch(base + '/ui/live').then(r => r.json());
-    assert.equal(web.items.length, 2); const cnn = web.items.find(r => r.title === 'CNN');
-    assert.equal(cnn.source_count, 2); assert.equal(cnn.provider, 'zlive');
+    assert.equal(web.items.length, 2); const bbc = web.items.find(r => r.title === 'BBC One');
+    assert.equal(bbc.source_count, 2); assert.equal(bbc.provider, 'zlive');
     const settings = settingsStore.get(), auth = new URLSearchParams({ username: settings.username, password: settings.password });
     const api = (action, extra = {}) => fetch(base + '/player_api.php?' + new URLSearchParams({ ...Object.fromEntries(auth), action, ...extra })).then(r => r.json());
-    const rows = await api('get_live_streams'), primary = rows.find(r => r.stream_id === cnn.stream_id), tim = rows.find(r => r.stream_id > 1100000000);
+    const rows = await api('get_live_streams'), primary = rows.find(r => r.stream_id === bbc.stream_id), tim = rows.find(r => r.stream_id > 1100000000);
     assert.equal(rows.length, 3); assert.equal(new Set(rows.map(r => r.stream_id)).size, 3);
     assert.equal((await api('get_live_categories')).length, 1, 'shared genres are not duplicated');
     assert.match(await fetch(base + '/get.php?' + auth + '&content=live').then(r => r.text()), /New Network/);
-    assert.match(await fetch(base + '/xmltv.php?' + auth).then(r => r.text()), /timstreams-cnn/);
+    assert.match(await fetch(base + '/xmltv.php?' + auth).then(r => r.text()), /timstreams-bbc-one-london/);
     assert.equal((await api('get_short_epg', { stream_id: tim.stream_id })).epg_listings.length, 0);
     const { profile } = await request('/ui/profiles', { name: 'Viewer', color: '#527de0' }).then(r => r.json());
-    const input = { type: 'live', id: cnn.stream_id, profileId: profile.id };
+    const input = { type: 'live', id: bbc.stream_id, profileId: profile.id };
     const play = await request('/ui/play', input).then(r => r.json());
     assert.equal(play.provider, 'timstreams'); assert.equal(primaryChecks, 1); assert.equal(timResolves, 1);
     const manifest = await fetch(play.url).then(r => r.text());
@@ -72,12 +78,17 @@ test('one channel card uses Tim Streams when primary video fails, with native/Xt
     const nextSegment = recovered.split('\n').find(line => line.startsWith('http'));
     const next = await fetch(nextSegment); assert.equal(next.status, 200);
     assert.deepEqual(Buffer.from(await next.arrayBuffer()), video);
+    // Saved IDs from the previously separate London card can use the other feed.
+    primaryDown = false; timDown = true;
+    const saved = await request('/ui/play', { ...input, id: tim.stream_id, fresh: true }).then(r => r.json());
+    assert.equal(saved.provider, 'zlive');
+    assert.match(await fetch(tim.direct_source).then(r => r.text()), /#EXTINF/);
     await request('/ui/settings', { live: { timstreams: false } }, 'PUT');
     assert.equal((await fetch(base + '/ui/live').then(r => r.json())).items.length, 1);
     assert.equal((await fetch(tim.direct_source)).status, 403);
     await request('/ui/settings', { live: { zlive: false, timstreams: true } }, 'PUT');
     const onlyTim = (await fetch(base + '/ui/live').then(r => r.json())).items;
-    assert.equal(onlyTim.length, 2); assert.equal(onlyTim.find(r => r.title === 'CNN').stream_id, tim.stream_id);
+    assert.equal(onlyTim.length, 2); assert.equal(onlyTim.find(r => r.title === 'BBC One').stream_id, tim.stream_id);
   } finally {
     globalThis.fetch = originalFetch;
     server?.closeAllConnections(); if (server) await new Promise(resolve => server.close(resolve));

@@ -220,6 +220,7 @@
   "auto-sky-witness": {"name": "Sky Witness", "country": "GB", "category": "entertainment", "logo": "sky-witness-uk-7c35e3c6.png", "logo_plate": true, "logo_width": 512, "logo_height": 384},
   "auto-sky-uno": {"name": "Sky Uno", "country": "IT", "category": "entertainment", "logo": "sky-uno-it-bfe00afe.png", "logo_width": 512, "logo_height": 146},
   "auto-sony-sports-network": {"name": "Sony Sports Ten 1", "country": "IN", "category": "sports", "logo": "sony-ten-1-in-65cc6cc3.png", "logo_plate": true, "logo_width": 512, "logo_height": 514},
+  "auto-sony-sports-network-2": {"name": "Sony Sports Ten 2", "country": "IN", "category": "sports", "logo": "sony-ten-2-in-dec0e9c0.png", "logo_plate": true, "logo_width": 512, "logo_height": 514},
   "auto-sony-sports-network-3": {"name": "Sony Sports Ten 3", "country": "IN", "category": "sports", "logo": "sony-ten-3-in-b90ddbf4.png", "logo_plate": true, "logo_width": 512, "logo_height": 514},
   "auto-sony-sports-network-4": {"name": "Sony Sports Ten 4", "country": "IN", "category": "sports", "logo": "sony-ten-4-in-cd893698.png", "logo_plate": true, "logo_width": 512, "logo_height": 514},
   "auto-sony-sports-network-5": {"name": "Sony Sports Ten 5", "country": "IN", "category": "sports", "logo": "sony-ten-5-in-c3f6652e.png", "logo_plate": true, "logo_width": 512, "logo_height": 514},

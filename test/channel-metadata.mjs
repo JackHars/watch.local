@@ -43,6 +43,19 @@ test('channel identities distinguish news from sports and retain alternate feeds
   assert.equal(channelArtwork({ key:'auto-cnn', name:'CNN' }, 'http://user:private@watch.local:8091/path?token=private'), art);
 });
 
+test('regional provider slugs share a channel identity without mixing national feeds', () => {
+  const tim = (key, name, flag) => channelMetadata({ provider: 'timstreams', key, name, flag });
+  assert.equal(tim('bbc-one-london', 'BBC One London', 'gb').name, 'BBC One');
+  assert.equal(tim('sony-sports-network-2', 'Sony Sports Network 2').name, 'Sony Sports Ten 2');
+  const germany = tim('dazn-1-germany', 'DAZN 1 Germany');
+  assert.equal(germany.name, 'DAZN 1');
+  assert.equal(germany.country, 'DE');
+  assert.equal(tim('dazn-1-spain', 'DAZN 1 Spain').country, 'ES');
+  assert.equal(tim('unknown', 'DAZN 1').country, 'INT');
+  assert.equal(tim('unknown', 'DAZN 1', 'pt').country, 'PT');
+  assert.equal(tim('dazn-1-germany', 'DAZN 1 Germany', 'us').name, 'DAZN 1 Germany');
+});
+
 test('genre, country, sport and search facets keep all matching feeds reachable', () => {
   const items = Object.entries(directory).map(([key, row], i) => ({ ...channelMetadata({ key, name:row.name }), stream_id:i+1, kind:'channel', name:row.name, search_name:key }));
   items.push({ stream_id: 9999, kind:'event', provider:'sports', sport:'nba', title:'Celtics vs Raptors', starts_at:10 });
