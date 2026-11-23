@@ -43,3 +43,14 @@ test('AuraSports rejects unsupported embeds and decodes PNG video before selecti
   assert.equal(calls.length, count, 'successful source is cached briefly');
   assert.equal((await source.media(stream.url, stream.playback)).headers.origin, 'https://frame.embedme.cfd');
 });
+
+test('an event player with no published playlist stays unavailable', async () => {
+  const source = createAurasportsSource({ fetchResource: async input => {
+    const url = new URL(input);
+    if (url.pathname === '/api/schedule') return Response.json(groups);
+    if (url.hostname === 'play.aurasportsplayer.cfd') return new Response('<iframe src="https://frame.aurasportsplayer.cfd/frame/espn-401910002"></iframe>');
+    assert.equal(url.hostname, 'frame.aurasportsplayer.cfd');
+    return new Response('<title>Coverage starts later</title>');
+  } });
+  await assert.rejects(source.resolve(event), { status: 503, message: /not published a playlist/ });
+});

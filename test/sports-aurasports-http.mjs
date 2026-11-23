@@ -18,10 +18,16 @@ test('sports fall through to AuraSports and signed browser/IPTV media decodes PN
       const url = new URL(input);
       if (url.hostname === '127.0.0.1') return original(input, options);
       if (url.pathname === '/api/schedule') return Response.json([{ category_name: 'nba', schedule: [{ id: 'espn-401910002', date: start * 1000, teams: { home: { name: 'Toronto Raptors' }, away: { name: 'New York Knicks' } }, sources: [{ url: 'https://play.aurasportsplayer.cfd/event/espn-401910002?source=0' }] }] }]);
-      if (url.hostname === 'play.aurasportsplayer.cfd') return new Response('<iframe src="https://frame.embedme.cfd/frame/espn-401910002?source=0"></iframe>');
-      if (url.hostname === 'frame.embedme.cfd') return new Response('var streamUrl = "https://hls.meth-streams-hd.cfd/live/espn-401910002/index.m3u8";');
-      if (url.hostname === 'hls.meth-streams-hd.cfd') return new Response('#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nhttps://cdn.test/first.image\n#EXTINF:6,\nhttps://cdn.test/second.image\n');
-      if (url.hostname === 'cdn.test') { imageRequests++; assert.equal(new Headers(options.headers).get('range'), null); return new Response(wrappedVideo(), { headers: { 'content-type': 'image/png' } }); }
+      if (url.hostname === 'play.aurasportsplayer.cfd') return new Response('<iframe src="https://frame.aurasportsplayer.cfd/frame/espn-401910002?source=0"></iframe>');
+      if (url.hostname === 'frame.aurasportsplayer.cfd') return new Response('var streamUrl = "https://hls.meth-streams-hd.cfd/live/espn-401910002/index.m3u8";');
+      if (url.hostname === 'hls.meth-streams-hd.cfd') return new Response('#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nhttps://cdn.test/first.m3u8\n#EXTINF:6,\nhttps://cdn.test/second.image\n');
+      if (url.hostname === 'cdn.test') {
+        imageRequests++;
+        const headers = new Headers(options.headers);
+        assert.equal(headers.get('range'), null);
+        assert.equal(headers.get('origin'), null);
+        return new Response(wrappedVideo({ format: 'KWP1' }), { headers: { 'content-type': 'image/png' } });
+      }
       assert.fail('Unexpected upstream host: ' + url.hostname);
     };
     const { initializeIPTV } = await import('../api/iptv.mjs');

@@ -3,7 +3,11 @@ import { probeSportsStream } from './sports-probe.mjs';
 import { decodeZliveMedia, ZLIVE_MEDIA_LIMIT } from './zlive-media.mjs';
 
 const SCHEDULE = 'https://aurasports.cfd/api/schedule';
-const HEADERS = { referer: 'https://frame.embedme.cfd/', origin: 'https://frame.embedme.cfd' };
+const legacyFrame = 'frame.embedme.cfd';
+const frameHosts = [legacyFrame, 'frame.aurasportsplayer.cfd'];
+const legacyHeaders = { referer: 'https://frame.embedme.cfd/', origin: 'https://frame.embedme.cfd' };
+// New streams are public. Existing signed relay URLs predate the frameHost field.
+const mediaHeaders = (frameHost = legacyFrame) => frameHost === legacyFrame ? legacyHeaders : {};
 const fail = (message, status = 502) => Object.assign(new Error(message), { status });
 const clean = value => String(value || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const teams = title => String(title || '').split(/\s+(?:vs?\.?|versus|at|@)\s+/i).map(clean);
@@ -24,10 +28,10 @@ export function matchAurasportsEvent(event, groups) {
   return matches.length === 1 ? matches[0] : null;
 }
 
-function verifiedURL(value, host, path) {
+function verifiedURL(value, hosts, path) {
   let url;
   try { url = new URL(value); } catch { throw fail('AuraSports returned an invalid player address.'); }
-  if (url.protocol !== 'https:' || url.hostname !== host || url.username || url.password || url.port || !path.test(url.pathname)) throw fail('AuraSports returned an unsupported player address.');
+  if (url.protocol !== 'https:' || !hosts.includes(url.hostname) || url.username || url.password || url.port || !path.test(url.pathname)) throw fail('AuraSports returned an unsupported player address.');
   return url.href;
 }
 
@@ -43,10 +47,11 @@ export function createAurasportsSource({ fetchResource = publicFetch, now = Date
     return Buffer.concat(parts).toString('utf8');
   }
   async function decodedFetch(url, options) {
-    if (!new URL(url).pathname.endsWith('.image')) return fetchResource(url, options);
-    // The provider stores gzip-compressed MPEG-TS in PNG pixels. Range requests
-    // would truncate that container, so validate the complete decoded segment.
-    const headers = { ...options.headers }; delete headers.Range; delete headers.range;
+    const headers = new Headers(options.headers);
+    if (!headers.has('range')) return fetchResource(url, options);
+    // The probe marks the video request with Range. A wrapped segment needs
+    // its complete upstream response regardless of its filename.
+    headers.delete('range');
     const response = await fetchResource(url, { ...options, headers });
     if (!response.ok) return response;
     if (Number(response.headers.get('content-length')) > ZLIVE_MEDIA_LIMIT) { await response.body?.cancel(); throw fail('AuraSports segment is too large.'); }
@@ -61,14 +66,16 @@ export function createAurasportsSource({ fetchResource = publicFetch, now = Date
     for (const source of sources) {
       signal?.throwIfAborted();
       try {
-        const player = verifiedURL(source.url, 'play.aurasportsplayer.cfd', new RegExp(`^/event/${row.id}$`));
+        const player = verifiedURL(source.url, ['play.aurasportsplayer.cfd'], new RegExp(`^/event/${row.id}$`));
         const page = await get(player, { referer: 'https://aurasports.cfd/' }, signal);
-        const frame = verifiedURL(page.match(/<iframe\b[^>]*\bsrc=["']([^"']+)/i)?.[1], 'frame.embedme.cfd', new RegExp(`^/frame/${row.id}$`));
+        const frame = verifiedURL(page.match(/<iframe\b[^>]*\bsrc=["']([^"']+)/i)?.[1], frameHosts, new RegExp(`^/frame/${row.id}$`));
+        const frameHost = new URL(frame).hostname;
         const html = await get(frame, { referer: player }, signal);
         // Read a literal configuration value; never execute provider page code.
         const media = html.match(/\b(?:var|const|let)\s+streamUrl\s*=\s*["']([^"']+)["']/i)?.[1];
-        const url = verifiedURL(media, 'hls.meth-streams-hd.cfd', new RegExp(`^/live/${row.id}/index\\.m3u8$`));
-        const stream = { url, headers: HEADERS, playback: { provider: 'aurasports', root: url } };
+        if (!media) throw fail('AuraSports has not published a playlist for this event yet.', 503);
+        const url = verifiedURL(media, ['hls.meth-streams-hd.cfd'], new RegExp(`^/live/${row.id}/index\\.m3u8$`));
+        const stream = { url, headers: mediaHeaders(frameHost), playback: { provider: 'aurasports', root: url, frameHost } };
         await probe(stream, { fetchResource: decodedFetch, signal });
         return stream;
       } catch (error) { last = error; }
@@ -93,6 +100,6 @@ export function createAurasportsSource({ fetchResource = publicFetch, now = Date
         return stream;
       } catch (error) { checkedAt = now(); lastError = error.message; throw error; }
     },
-    media: async (url, context) => ({ url, headers: HEADERS, playback: context }),
+    media: async (url, context) => ({ url, headers: mediaHeaders(context.frameHost), playback: context }),
   };
 }
