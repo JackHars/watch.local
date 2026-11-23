@@ -54,3 +54,44 @@ test('an event player with no published playlist stays unavailable', async () =>
   } });
   await assert.rejects(source.resolve(event), { status: 503, message: /not published a playlist/ });
 });
+
+test('AuraSports only requests links declared for the selected event and checks redirects', async () => {
+  const visited = [];
+  const source = createAurasportsSource({ fetchResource: async input => {
+    const url = new URL(input); visited.push(url.href);
+    if (url.pathname === '/api/schedule') return Response.json([{ category_name: 'nba', schedule: [{ ...row, sources: [
+      { url: 'https://127.0.0.1/event/' + row.id }, { url: 'https://wrong.example/event/espn-987' },
+      { url: 'https://publisher.example/event/' + row.id },
+    ] }] }]);
+    if (url.hostname === 'publisher.example') return new Response('<iframe src="https://advert.example/frame/' + row.id + '"></iframe>' +
+      '<iframe allowfullscreen src="https://different-game.example/frame/espn-987"></iframe>' +
+      '<iframe id="player-frame" src="/frame/' + row.id + '"></iframe>');
+    assert.fail('Unexpected host');
+  } });
+  // The relative frame links back to the wrapper. Only one embedded page is followed.
+  await assert.rejects(source.resolve(event));
+  assert.deepEqual(visited.map(v => new URL(v).hostname), ['aurasports.cfd', 'publisher.example', 'publisher.example']);
+
+  const redirects = [];
+  const redirected = createAurasportsSource({ fetchResource: async input => {
+    const url = new URL(input); redirects.push(url.hostname);
+    if (url.pathname === '/api/schedule') return Response.json([{ category_name: 'nba', schedule: [{ ...row, sources: [], iframeUrl: 'https://player.example/event/' + row.id }] }]);
+    return Response.redirect('https://private.lan/frame/' + row.id, 302);
+  } });
+  await assert.rejects(redirected.resolve(event), /unsupported/);
+  assert.deepEqual(redirects, ['aurasports.cfd', 'player.example']);
+});
+
+test('a replacement manifest redirect cannot select a different game or the excluded feed', async () => {
+  const contacted = [];
+  const obsolete = 'https://old.example/stream';
+  const source = createAurasportsSource({ fetchResource: async input => {
+    const url = new URL(input); contacted.push(url.hostname);
+    if (url.pathname === '/api/schedule') return Response.json([{ category_name: 'nba', schedule: [{ ...row, sources: [], watchUrl: 'https://event.example/watch/opaque' }] }]);
+    if (url.hostname === 'event.example') return new Response('<video><source src="https://alias.example/wrong.m3u8"><source src="https://alias.example/old.m3u8"></video>');
+    assert.equal(url.hostname, 'alias.example');
+    return Response.redirect(url.pathname === '/old.m3u8' ? obsolete : 'https://wrong-game.example/live/espn-123/playlist.m3u8');
+  } });
+  await assert.rejects(source.resolve(event, { fresh: true, excludeURL: obsolete }), /unsupported/);
+  assert.deepEqual(contacted, ['aurasports.cfd', 'event.example', 'alias.example', 'alias.example']);
+});

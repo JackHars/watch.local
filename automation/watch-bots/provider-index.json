@@ -356,7 +356,8 @@
         "https://tim-streams.com"
       ],
       "implementation": [
-        "api/timstreams.mjs"
+        "api/timstreams.mjs",
+        "api/published-stream.mjs"
       ]
     },
     {
@@ -408,11 +409,13 @@
       "origins": [
         "https://aurasports.cfd",
         "https://play.aurasportsplayer.cfd",
+        "https://frame.aurasportsplayer.cfd",
         "https://frame.embedme.cfd",
         "https://hls.meth-streams-hd.cfd"
       ],
       "implementation": [
         "api/aurasports.mjs",
+        "api/published-stream.mjs",
         "api/zlive-media.mjs",
         "api/sports.mjs"
       ]

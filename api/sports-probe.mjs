@@ -8,7 +8,9 @@ export async function probeSportsStream(stream, { fetchResource = fetch, media =
   async function request(url, { binary = false, key = false } = {}) {
     const resource = stream.playback ? await media(url, stream.playback) : null;
     const headers = { ...stream.headers, ...resource?.headers, ...(binary && !key ? { Range: 'bytes=0-1023' } : {}) };
-    const response = await fetchResource(resource?.url || url, { headers, signal: signal || AbortSignal.timeout(8000) });
+    const fetched = await fetchResource(resource?.url || url, { headers, signal: signal || AbortSignal.timeout(8000) });
+    // A provider that checks redirects itself can supply the final playlist base.
+    const response = fetched.response || fetched;
     if (!response.ok) { await response.body?.cancel(); throw fail(`Sports video check returned HTTP ${response.status}.`); }
     const reader = response.body?.getReader(); if (!reader) throw fail('The sports stream is empty.');
     const chunks = []; let length = 0;
@@ -20,11 +22,12 @@ export async function probeSportsStream(stream, { fetchResource = fetch, media =
         if (length > 2 * 1024 * 1024) throw fail('The sports playlist is too large.');
       }
     } finally { await reader.cancel().catch(() => {}); }
-    return { body: Buffer.concat(chunks), url: response.url || resource?.url || url };
+    return { body: Buffer.concat(chunks), url: fetched.url || resource?.url || url };
   }
-  let url = stream.url;
+  let url = stream.url, root = url;
   for (let depth = 0; depth < 4; depth++) {
     const response = await request(url), text = response.body.toString('utf8');
+    if (depth === 0) root = response.url;
     if (!text.trimStart().startsWith('#EXTM3U')) throw fail('The sports source did not return an HLS playlist.');
     const playlist = highestQualityPlaylist(text), lines = playlist.split(/\r?\n/).map(line => line.trim());
     const entries = lines.filter(line => line && !line.startsWith('#'));
@@ -39,7 +42,7 @@ export async function probeSportsStream(stream, { fetchResource = fetch, media =
     const transport = bytes.length >= 376 && bytes[0] === 0x47 && bytes[188] === 0x47;
     const mp4 = /^(ftyp|styp|moof|moov)$/.test(bytes.subarray(4, 8).toString());
     if (!key && !transport && !mp4) throw fail('The sports source returned unsupported video data.');
-    return;
+    return { root, mediaPlaylist: response.url };
   }
   throw fail('The sports playlist contains too many nested playlists.');
 }

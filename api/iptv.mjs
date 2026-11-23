@@ -42,6 +42,7 @@ let refreshProgress;
 let writeQueue = Promise.resolve();
 const seriesCache = new Map();
 const liveExpiries = new Map();
+const hasPublishedSources = live => live?.provider === 'aurasports' || live?.provider === 'timstreams';
 const mediaContentType = type => {
   const mime = type.split(';', 1)[0].trim().toLowerCase();
   return /^(?:audio|video)\/[a-z0-9.+-]+$/.test(mime) || ['text/vtt', 'application/mp4'].includes(mime) ? mime : 'application/octet-stream';
@@ -251,10 +252,11 @@ function liveExpiry(id) {
 }
 function rewriteHLS(playlist, upstream, base, headers, live, currentLive = live) {
   const master = /#EXT-X-STREAM-INF:/.test(playlist);
-  const rewrite = (uri, hint) => {
+  const rewrite = (uri, hint, variant = false) => {
     if (/^(data:|skd:)/i.test(uri)) return uri;
     const absolute = new URL(uri, upstream).href;
-    return assetURL(base, live ? sportsMediaURL(absolute, live, currentLive) : absolute, hint, headers, live ? { live } : {});
+    const context = live ? { live, ...(variant && hasPublishedSources(live) ? { variant: true } : {}) } : {};
+    return assetURL(base, live ? sportsMediaURL(absolute, live, currentLive) : absolute, hint, headers, context);
   };
   return playlist.split(/\r?\n/).map(line => {
     if (!line.trim()) return line;
@@ -262,11 +264,11 @@ function rewriteHLS(playlist, upstream, base, headers, live, currentLive = live)
       const hint = /^#EXT-X-(?:SESSION-)?KEY:/.test(line) ? 'key' : line.startsWith('#EXT-X-MAP:') ? 'map' : 'playlist';
       return line.replace(/URI="([^"]+)"/g, (_, uri) => `URI="${rewrite(uri, hint)}"`);
     }
-    return rewrite(line.trim(), master ? 'playlist' : 'segment');
+    return rewrite(line.trim(), master ? 'playlist' : 'segment', master);
   }).join('\n');
 }
 
-async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders, live) {
+async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders, live, variant = false) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 120000);
   res.once('close', () => controller.abort());
@@ -274,13 +276,14 @@ async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders, l
   try {
     // Resolve temporary live URLs and key authorization on the server for
     // every request, including native players that cannot set custom headers.
-    const resource = live ? await liveTV.media(upstream, live) : null;
+    const resource = live ? await liveTV.media(upstream, live, variant) : null;
     if (resource) { upstream = resource.url; resolvedLive = resource.playback || live; }
-    const headers = { ...upstreamHeaders, ...resource?.headers };
+    const movedFeed = hasPublishedSources(resolvedLive) && resolvedLive.root !== live?.root;
+    const changedSource = movedFeed || resolvedLive?.provider !== live?.provider || resolvedLive?.memberId !== live?.memberId || resolvedLive?.sportsSource !== live?.sportsSource;
+    const headers = changedSource ? { ...resource?.headers } : { ...upstreamHeaders, ...resource?.headers };
     const manifestHeaders = { ...headers };
     const sendPlaylist = async (raw, sourceURL) => {
       const original = settings.config.playback.quality === 'adaptive' ? raw : highestQualityPlaylist(raw);
-      const changedSource = resolvedLive?.provider !== live?.provider || resolvedLive?.memberId !== live?.memberId || resolvedLive?.sportsSource !== live?.sportsSource;
       const relayLive = changedSource ? resolvedLive : live;
       let playlist = rewriteHLS(original, sourceURL, base, manifestHeaders, relayLive, resource?.playback);
       if (decorate) playlist = await decorate(playlist, original, sourceURL);
@@ -307,7 +310,8 @@ async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders, l
     const first = await reader.read();
     const prefix = first.value ? new TextDecoder().decode(first.value.subarray(0, 128)).trimStart() : '';
     const isPlaylist = prefix.startsWith('#EXTM3U');
-    if (/mpegurl/i.test(type) && !isPlaylist) throw new HttpError(502, 'The video host returned an invalid playlist.');
+    const publishedPlaylist = hasPublishedSources(resolvedLive) && (upstream === resolvedLive.root || variant);
+    if ((publishedPlaylist || /mpegurl/i.test(type)) && !isPlaylist) throw new HttpError(502, 'The video host returned an invalid playlist.');
     const looksLikeMedia = first.value?.[0] === 0x47 || first.value && /^(ftyp|styp|moof|moov)$/.test(Buffer.from(first.value.subarray(4, 8)).toString());
     if (/text\/html/i.test(type) && !isPlaylist && !looksLikeMedia) throw new HttpError(502, 'The video host returned an error page.');
     if (isPlaylist) {
@@ -339,7 +343,10 @@ async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders, l
       const replacement = await liveTV.recover(resolvedLive).catch(() => null);
       // Never return a manifest or another game's segment for a video/key URL.
       // A failed segment also primes the next root refresh to use the fallback.
-      if (replacement && (/\/playlist\.m3u8(?:\?|$)/.test(req.url) || /^\/live\//.test(req.url))) return serveMedia(req, res, replacement.url, base, decorate, replacement.headers, replacement.playback);
+      if (replacement && (/\/playlist\.m3u8(?:\?|$)/.test(req.url) || /^\/live\//.test(req.url))) {
+        const url = variant && replacement.mediaPlaylist || replacement.url;
+        return serveMedia(req, res, url, base, decorate, replacement.headers, replacement.playback, variant);
+      }
     }
     throw error;
   } finally { clearTimeout(timer); await reader?.cancel().catch(() => {}); }
@@ -501,7 +508,7 @@ async function handleIPTVRequest(req, res) {
       const target = assetTarget(media[1]);
       if (target.sub) throw new HttpError(403, 'Invalid media link type.');
       const relayBase = origin(req);
-      await serveMedia(req, res, target.u, relayBase, target.vod ? withSubtitles(relayBase, target.vod, target.headers) : undefined, target.headers, target.live); return true;
+      await serveMedia(req, res, target.u, relayBase, target.vod ? withSubtitles(relayBase, target.vod, target.headers) : undefined, target.headers, target.live, target.variant); return true;
     }
     const subtitle = path.match(/^\/iptv\/subtitles\/([^/]+)\/(playlist\.m3u8|segment-(\d+)\.vtt)$/);
     if (subtitle) {

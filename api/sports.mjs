@@ -185,6 +185,12 @@ export function createSportsProvider({ directory, source = createSportsSource(),
     ...(fallback ? [{ id: 'strmfree', source: fallback, enabled: fallbackEnabled }] : []),
   ];
   const adapterFor = id => adapters.find(adapter => adapter.id === id && adapter.enabled());
+  function replacementFor(context) {
+    const active = playing.get(context.eventId);
+    if (!active || !adapterFor(active.source)) return null;
+    const moved = active.source === 'aurasports' && active.stream.url !== context.root;
+    return moved || active.source !== context.sportsSource ? active.stream : null;
+  }
   function displayStatus(event) {
     const status = eventStatus(event, now);
     if (status !== 'LIVE') return status;
@@ -297,16 +303,17 @@ export function createSportsProvider({ directory, source = createSportsSource(),
       for (const e of events) if (e.starts_at > 0 && e.ends_at > e.starts_at) rows.push(`<programme start="${xmlDate(e.starts_at)}" stop="${xmlDate(e.ends_at)}" channel="${channelID(e)}"><title lang="en">${xml(e.title)}</title><desc lang="en">${xml(description(e))}</desc><category lang="en">${xml(SPORTS[e.sport])}</category></programme>`);
       return rows.concat('</tv>', '').join('\n');
     },
-    async resolve(id, { fresh = false, exclude = [] } = {}) {
+    async resolve(id, { fresh = false, exclude = [], replaceRoot } = {}) {
       await ensure({ checkStatus: false }); const stored = Object.values(state.events).find(e => e.id === Number(id));
       if (!stored) throw fail(404, 'Sports event not found. Refresh Live TV in your IPTV app.');
       // Only the selected game's scoreboard belongs on the Play path. Waiting
       // for unrelated leagues made a slow scoreboard delay every broadcast.
       await updateStatus([stored]);
       if (eventStatus(state.events[stored.slug] || stored, now) === 'ENDED') throw fail(410, 'This sports event has ended.');
-      const resolvingKey = `${id}:${fresh ? 1 : 0}:${[...exclude].sort().join(',')}`;
+      const resolvingKey = JSON.stringify([id, fresh, [...exclude].sort(), replaceRoot]);
       if (resolving.has(resolvingKey)) return resolving.get(resolvingKey);
       const cached = playing.get(Number(id));
+      if (cached && cached.stream.url === replaceRoot) playing.delete(Number(id));
       // IPTV apps re-request their original URL every few seconds. Keep the
       // player context stable during viewing; its media credentials renew below.
       if (!fresh && cached && now() - cached.used < 120000 && !exclude.includes(cached.source) && adapterFor(cached.source)) { cached.used = now(); return cached.stream; }
@@ -323,13 +330,18 @@ export function createSportsProvider({ directory, source = createSportsSource(),
                 const event = await source.resolve(stored, { signal });
                 if (!event.has_payload || !event.stream_url) throw fail(503, eventStatus(event, now) === 'UPCOMING' ? 'This event has not started and its broadcast is not available yet.' : 'The sports source has not published a broadcast URL for this event yet.');
                 value = await source.hls(event, { signal, verify: true });
-              } else value = await adapter.resolve(stored, { signal, fresh });
+              } else {
+                const excludeURL = name === 'aurasports' ? replaceRoot : undefined;
+                value = await adapter.resolve(stored, { signal, fresh, excludeURL });
+                if (excludeURL && value.url === excludeURL) throw fail(502, 'The previous sports feed is still unavailable.');
+              }
               // Built-in adapters validate each candidate before selecting it,
               // so a bad segment cannot discard their remaining backups.
               if (adapter.verify && !(name === 'primary' ? adapter.validatesHls : adapter.validatesStreams)) await adapter.verify(value, { signal });
               return value;
             });
-            if (adapters.length > 1) stream = { ...stream, playback: { provider: 'sports-direct', root: stream.url, ...stream.playback, eventId: Number(id), sportsSource: name, failedSportsSources: failed } };
+            if (adapters.length > 1) stream = { ...stream, playback: { provider: 'sports-direct', root: stream.url, ...stream.playback, eventId: Number(id), sportsSource: name, failedSportsSources: failed,
+              ...(name === 'aurasports' && replaceRoot ? { rediscoveredAt: now() } : {}) } };
             if (stream.playback) {
               playing.set(Number(id), { stream, source: name, used: now() });
               while (playing.size > 100) playing.delete(playing.keys().next().value);
@@ -346,12 +358,13 @@ export function createSportsProvider({ directory, source = createSportsSource(),
       resolving.set(resolvingKey, pending);
       return pending;
     },
-    async media(url, context) {
+    async media(url, context, variant) {
       if (!adapterFor(context.sportsSource)) throw fail(403, 'This sports source is disabled. Reopen the event to use an enabled source.');
-      const active = playing.get(context.eventId);
       // Old root URLs remain usable after a failed provider is replaced. Child
       // segments retain their original provider; don't splice unrelated bytes.
-      if (active && url === context.root && active.source !== context.sportsSource && adapterFor(active.source)) return { url: active.stream.url, headers: active.stream.headers, playback: active.stream.playback };
+      const replacement = (url === context.root || variant) && replacementFor(context);
+      if (replacement && url === context.root) return replacement;
+      if (replacement?.mediaPlaylist && variant) return { ...replacement, url: replacement.mediaPlaylist };
       if (context.provider === 'sports-direct') return null;
       const resource = await adapterFor(context.sportsSource).source.media?.(url, context);
       if (resource?.playback && context.eventId) resource.playback = { ...resource.playback, eventId: context.eventId, sportsSource: context.sportsSource, failedSportsSources: context.failedSportsSources || [] };
@@ -359,11 +372,13 @@ export function createSportsProvider({ directory, source = createSportsSource(),
     },
     async recover(context) {
       if (!context?.eventId || !context.sportsSource) return null;
-      const cached = playing.get(context.eventId);
-      if (cached && cached.source !== context.sportsSource && adapterFor(cached.source)) return cached.stream;
-      const failed = [...new Set([...(context.failedSportsSources || []), context.sportsSource])];
-      if (!adapters.some(adapter => adapter.enabled() && !failed.includes(adapter.id))) return null;
-      return provider.resolve(context.eventId, { fresh: true, exclude: failed });
+      const replacement = replacementFor(context);
+      if (replacement) return replacement;
+      const failed = new Set(context.failedSportsSources || []);
+      const rediscover = context.sportsSource === 'aurasports' && (!context.rediscoveredAt || now() - context.rediscoveredAt >= 30000);
+      if (!rediscover) failed.add(context.sportsSource);
+      if (!adapters.some(adapter => adapter.enabled() && !failed.has(adapter.id))) return null;
+      return provider.resolve(context.eventId, { fresh: true, exclude: [...failed], replaceRoot: rediscover ? context.root : undefined });
     },
   };
   return provider;

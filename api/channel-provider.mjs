@@ -50,23 +50,27 @@ export function createChannelProvider({ directory, source, provider, label, idBa
     return state.channels;
   }
   const programs = channel => (state.guide[channel.key] || []).filter(p => p.stop > now() / 1000 - 3600 && p.start < now() / 1000 + 86400);
-  async function stream(channel, { fresh = false, preferred } = {}) {
-    if (pending.has(channel.key)) return pending.get(channel.key);
+  async function stream(channel, { fresh = false, preferred, excludeURL } = {}) {
+    const pendingKey = JSON.stringify([channel.key, fresh, excludeURL]);
+    if (pending.has(pendingKey)) return pending.get(pendingKey);
     const cached = playing.get(channel.key);
-    if (!fresh && cached && now() - cached.at < 60000) return cached.stream;
+    if (cached && cached.stream.url === excludeURL) playing.delete(channel.key);
+    else if (!fresh && cached && now() - cached.at < 60000) return cached.stream;
     const work = (async () => {
       let last;
-      const keys = [...new Set([preferred, ...channel.sources].filter(k => channel.sources.includes(k)))];
+      const references = source.referencesFor?.(channel) || channel.sources;
+      const keys = [...new Set([preferred, ...references].filter(k => references.includes(k)))];
       for (const key of keys) try {
-        const result = await source.resolve(key);
+        const result = await source.resolve(key, { fresh, excludeURL });
+        if (result.url === excludeURL) throw problem(502, 'The previous feed is still unavailable.');
         const resolved = { ...result, playback: { provider, channel: channel.key, source: key, root: result.url } };
         playing.set(channel.key, { stream: resolved, at: now() });
         while (playing.size > 100) playing.delete(playing.keys().next().value);
         return resolved;
       } catch (e) { last = e; }
       throw problem(502, `${label} could not open ${channel.name}. ${last?.message || 'Try again shortly.'}`);
-    })().finally(() => pending.delete(channel.key));
-    pending.set(channel.key, work); return work;
+    })().finally(() => pending.delete(pendingKey));
+    pending.set(pendingKey, work); return work;
   }
   return {
     async initialize() {
@@ -118,8 +122,9 @@ export function createChannelProvider({ directory, source, provider, label, idBa
     },
     async media(url, context) {
       const channel = (await ensure()).find(c => c.key === context.channel);
-      if (!channel || !channel.sources.includes(context.source)) throw problem(404, `${label} channel is no longer available.`);
+      if (!channel || (!source.referencesFor && !channel.sources.includes(context.source))) throw problem(404, `${label} channel is no longer available.`);
       const current = url === context.root ? await stream(channel, { preferred: context.source }) : playing.get(channel.key)?.stream;
+      if (source.referencesFor && url !== context.root && current?.url !== context.root) return { url, playback: context };
       const from = new URL('.', context.root).href, to = current ? new URL('.', current.url).href : from;
       const target = url === context.root && current ? current.url : url.startsWith(from) ? to + url.slice(from.length) : url;
       return { url: target, headers: { ...defaultHeaders, ...current?.headers }, playback: { ...context, ...current?.playback } };

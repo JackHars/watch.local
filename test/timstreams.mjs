@@ -14,7 +14,7 @@ const config = packed(`globalThis.__timExecuted = true; loadStreamUrl("${ticket}
 test('Tim Streams decodes only configuration data and bounded HLS tickets, never player code', () => {
   assert.equal(timstreamsTicket(config), ticket); assert.equal(globalThis.__timExecuted, undefined);
   assert.equal(decodeTimstreamsTicket(encode(media), ticket), media);
-  for (const html of ['', packed('console.log("No stream")'), packed('loadStreamUrl("https://localhost/p/fixture-ticket", cb)'), 'x'.repeat(1024 * 1024 + 1)]) assert.throws(() => timstreamsTicket(html), { status: 502 });
+  for (const html of ['', packed('console.log("No stream")'), packed('loadStreamUrl("https://localhost/p/fixture-ticket", cb)'), packed(`loadStreamUrl("${ticket}#fragment", cb)`), 'x'.repeat(1024 * 1024 + 1)]) assert.throws(() => timstreamsTicket(html), { status: 502 });
   for (const url of ['http://video.test/live.m3u8', 'https://127.0.0.1/live.m3u8', 'https://watch.local/live.m3u8', 'https://user:pass@video.test/live.m3u8', 'https://video.test/error.html']) assert.throws(() => decodeTimstreamsTicket(encode(url), ticket), { status: 502 });
   assert.throws(() => decodeTimstreamsTicket(Buffer.alloc(9000), ticket), { status: 502 });
 });
@@ -25,13 +25,16 @@ test('Tim Streams imports stable channels, genres and source alternatives withou
     return Response.json({ channels: [
       { url: 'fixture-news', name: 'Fixture\nNews', genre: 5, flag: 'us', streams: [{ url: 'https://player.test/news' }, { url: 'https://player.test/news' }, { url: 'https://player.test/backup' }, { url: 'javascript:bad()' }] },
       { url: 'empty', name: 'Empty', streams: [] },
+      { url: 'members', name: 'Members', vip: 1, streams: [{ url: 'https://player.test/private' }] },
+      { url: 'payment', name: 'Payment', streams: [{ url: 'https://player.test/private', vip: true }] },
       { url: '../unsafe', name: 'Unsafe', streams: [{ url: 'https://player.test/' }] },
     ] });
   } });
   const rows = await source.list();
   assert.equal(rows.length, 1); assert.equal(rows[0].key, 'fixture-news'); assert.equal(rows[0].name, 'Fixture News');
   assert.equal(rows[0].category, 'news'); assert.equal(rows[0].flag, 'US'); assert.equal(rows[0].provider, 'timstreams');
-  assert.deepEqual(rows[0].sources, ['https://player.test/news', 'https://player.test/backup']);
+  assert.deepEqual(rows[0].sources, ['fixture-news']);
+  assert.ok(!JSON.stringify(rows).includes('player.test'));
   assert.ok(!JSON.stringify(rows).includes('fixture-ticket'));
 });
 
@@ -43,7 +46,7 @@ test('Tim Streams follows player redirects, supplies headers and checks actual v
     if (url.hostname === 'player.test') {
       assert.equal(options.headers.referer, 'https://tim-streams.com/');
       if (url.pathname === '/channel') return new Response(null, { status: 302, headers: { location: '/play/fixture-session' } });
-      return new Response(config);
+      return new Response(config + '<iframe allowfullscreen src="https://irrelevant.example"></iframe>');
     }
     assert.equal(options.headers.referer, 'https://player.test/play/fixture-session'); assert.equal(options.headers.origin, 'https://player.test');
     if (url.pathname.startsWith('/p/')) return new Response(encode(media));
@@ -58,6 +61,48 @@ test('Tim Streams follows player redirects, supplies headers and checks actual v
   broken = true; await assert.rejects(source.resolve('https://player.test/channel'), /Tim Streams video check returned HTTP 403/);
   const unsafe = createTimstreamsSource({ fetchResource: async () => new Response(null, { status: 302, headers: { location: 'http://127.0.0.1/private' } }) });
   await assert.rejects(unsafe.resolve('https://player.test/channel'), /unsupported media address/);
+});
+
+test('Tim Streams refreshes a stale directory once and validates only the selected channel’s public links', async () => {
+  let directories = 0, attempts = [];
+  const source = createTimstreamsSource({ fetchResource: async (input, options) => {
+    const url = new URL(input);
+    if (url.pathname === '/api/channels') {
+      directories++;
+      return Response.json({ channels: [
+        { url: 'news', name: 'News', streams: [{ url: 'https://old.example/watch' }, ...(directories > 1 ? [{ url: 'https://new.example/view' }] : [])] },
+        { url: 'news-2', name: 'News 2', streams: [{ url: 'https://other-channel.example/watch' }] },
+      ] });
+    }
+    attempts.push(url.hostname);
+    if (url.hostname === 'old.example') return new Response(null, { status: 410 });
+    if (url.hostname === 'new.example') return new Response('<iframe src="https://ads.example"></iframe><iframe allowfullscreen src="https://frame.example/player"></iframe>');
+    if (url.hostname === 'frame.example') return new Response('<video><source src="http://router.lan/local.m3u8"><source src="/main.m3u8"></video>', { status: 200 });
+    throw Error('Unexpected host');
+  }, probe: async stream => { assert.equal(stream.url, 'https://frame.example/main.m3u8'); } });
+  const [news] = await source.list();
+  assert.deepEqual(news.sources, ['news']);
+  const resolved = await source.resolve(news.sources[0]);
+  assert.equal(resolved.url, 'https://frame.example/main.m3u8');
+  assert.equal(directories, 2);
+  assert.deepEqual(attempts, ['old.example', 'new.example', 'frame.example']);
+});
+
+test('Tim Streams bounds repeat lookups and picks up a feed published after an outage', async () => {
+  const old = 'https://old.example/news.m3u8', next = 'https://new.example/news.m3u8';
+  let current = old, time = 0, catalogs = 0;
+  const source = createTimstreamsSource({ now: () => time, fetchResource: async url => {
+    assert.equal(url, 'https://tim-streams.com/api/channels'); catalogs++;
+    return Response.json({ channels: [{ url: 'news', name: 'News', streams: [{ url: current }] }] });
+  }, probe: async stream => { assert.equal(stream.url, next); } });
+  await source.list();
+  const recover = () => source.resolve('news', { fresh: true, excludeURL: old });
+  await Promise.all([assert.rejects(recover(), /previous feed/), assert.rejects(recover(), /previous feed/)]);
+  await assert.rejects(recover(), /previous feed/);
+  assert.equal(catalogs, 2);
+  current = next; time += 31000;
+  assert.equal((await recover()).url, next);
+  assert.equal(catalogs, 3);
 });
 
 test('channel grouping combines broadcaster backups while preserving regional channels and numbered networks', async () => {
