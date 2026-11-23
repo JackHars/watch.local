@@ -5,9 +5,14 @@ for (let i = 0; i < video.length; i++) video[i] = i % 188 === 0 ? 0x47 : i % 251
 const chunk = (name, data) => { const out = Buffer.alloc(data.length + 12); out.writeUInt32BE(data.length); out.write(name, 4); data.copy(out, 8); return out; };
 // Small synthetic image carrying a known transport-stream payload. CRC bytes
 // are unused by the provider's framing protocol; no real broadcast is bundled.
-export function wrappedVideo({ rgba = false } = {}) {
-  const zip = gzipSync(video), payload = Buffer.alloc(zip.length + 12); payload.write('TIKTIKPX'); payload.writeUInt32BE(zip.length, 8); zip.copy(payload, 12);
-  const width = 8, height = Math.ceil(payload.length / (width * 3)), bpp = rgba ? 4 : 3;
+export function wrappedVideo({ rgba = false, format = 'TIKTIKPX', declaredLength, leadingRows = 0 } = {}) {
+  const data = format === 'KWP1' ? video : gzipSync(video);
+  const framing = Buffer.alloc(format.length + 4);
+  framing.write(format);
+  framing.writeUInt32BE(declaredLength ?? data.length, format.length);
+  const width = 8;
+  const payload = Buffer.concat([Buffer.alloc(leadingRows * width * 3), framing, data]);
+  const height = Math.ceil(payload.length / (width * 3)), bpp = rgba ? 4 : 3;
   const pixels = Buffer.alloc(width * height * bpp);
   if (rgba) for (let i = 0; i < payload.length; i++) pixels[Math.floor(i / 3) * 4 + i % 3] = payload[i];
   else payload.copy(pixels);

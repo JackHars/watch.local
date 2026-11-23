@@ -22,8 +22,8 @@ test('ZLive and sports share browser/native/Xtream/M3U/EPG routes, decoding only
   const upstream = http.createServer((req, res) => {
     headersSeen.push(req.headers);
     if (req.headers.origin !== zliveHeaders.origin || req.headers.referer !== zliveHeaders.referer) { res.writeHead(403); return res.end(); }
-    if (req.url === '/master.m3u8') return res.end('#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-MEDIA-SEQUENCE:10\n#EXTINF:6,\nvideo.image\n');
-    if (req.url === '/video.image') { downloads++; res.setHeader('Content-Type', 'image/png'); return res.end(wrappedVideo()); }
+    if (req.url === '/master.m3u8') return res.end('#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-MEDIA-SEQUENCE:10\n#EXTINF:6,\nvideo.m3u8\n');
+    if (req.url === '/video.m3u8') { downloads++; res.setHeader('Content-Type', 'image/png'); return res.end(wrappedVideo({ format: 'KWP1' })); }
     res.writeHead(404); res.end();
   });
   upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');

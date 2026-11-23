@@ -20,6 +20,20 @@ test('ZLive rejects error pages, truncated containers and excessive decoded dime
   await assert.rejects(decodeZliveMedia(enormous), /unsupported/);
 });
 
+test('KWP1 delivers only whole transport packets within its declared payload', async () => {
+  for (const rgba of [false, true]) {
+    assert.deepEqual(await decodeZliveMedia(wrappedVideo({ format: 'KWP1', rgba })), video);
+  }
+  for (const declaredLength of [0, video.length - 1, video.length + 188, 0xffffffff]) {
+    await assert.rejects(decodeZliveMedia(wrappedVideo({ format: 'KWP1', declaredLength })), /unsupported/);
+  }
+});
+
+test('legacy video with leading image rows respects its payload length', async () => {
+  assert.deepEqual(await decodeZliveMedia(wrappedVideo({ leadingRows: 16 })), video);
+  await assert.rejects(decodeZliveMedia(wrappedVideo({ leadingRows: 16, declaredLength: 0xffffffff })), /unsupported/);
+});
+
 test('decoded segment relay serves ranges/HEAD, shares downloads, expires cache and retries failures', async () => {
   let requests = 0, clock = 1000, fail = false;
   const relay = createZliveRelay({ now: () => clock, fetchResource: async (url, options) => {

@@ -10,9 +10,8 @@ const invalid = () => Object.assign(new Error('ZLive returned an unsupported vid
 const isTS = bytes => bytes.length >= 188 * 3 && [0, 188, 376].every(i => bytes[i] === 0x47);
 const paeth = (a, b, c) => { const p = a + b - c, x = Math.abs(p - a), y = Math.abs(p - b), z = Math.abs(p - c); return x <= y && x <= z ? a : y <= z ? b : c; };
 
-// The public player supports TS hidden after PNGs, in IDAT/WebP EXIF chunks,
-// and gzip-compressed TS stored as PNG RGB pixels (TIKTIKPX). Decode on the
-// server so Safari and IPTV apps don't need the site's custom HLS loader.
+// Both pixel formats contain a length-prefixed video payload. KWP1 carries
+// TS packets directly and TIKTIKPX carries a gzip stream.
 async function pngVideo(bytes) {
   let width, height, channels, end, pixelFormat, offset = 8; const chunks = [];
   while (offset + 12 <= bytes.length) {
@@ -39,19 +38,34 @@ async function pngVideo(bytes) {
   for (let y = 0; y < height; y++) {
     const start = y * (stride + 1), filter = raw[start];
     if (filter > 4) throw invalid();
-    for (let x = 0; x < stride; x++) {
-      const a = x >= channels ? row[x - channels] : 0, b = prior[x], c = x >= channels ? prior[x - channels] : 0;
-      const prediction = filter === 1 ? a : filter === 2 ? b : filter === 3 ? (a + b) >> 1 : filter === 4 ? paeth(a, b, c) : 0;
-      row[x] = (raw[start + 1 + x] + prediction) & 255;
+    if (filter === 0) {
+      raw.copy(row, 0, start + 1, start + 1 + stride);
+    } else {
+      for (let x = 0; x < stride; x++) {
+        const a = x >= channels ? row[x - channels] : 0, b = prior[x], c = x >= channels ? prior[x - channels] : 0;
+        const prediction = filter === 1 ? a : filter === 2 ? b : filter === 3 ? (a + b) >> 1 : paeth(a, b, c);
+        row[x] = (raw[start + 1 + x] + prediction) & 255;
+      }
     }
     if (channels === 3) { row.copy(rgb, pixel); pixel += stride; }
     else for (let x = 0; x < stride; x += 4) { rgb[pixel++] = row[x]; rgb[pixel++] = row[x + 1]; rgb[pixel++] = row[x + 2]; }
     [prior, row] = [row, prior];
   }
-  if (rgb.toString('ascii', 0, 8) !== 'TIKTIKPX' || rgb.length < 12) throw invalid();
-  const length = rgb.readUInt32BE(8);
-  if (!length || length > rgb.length - 12) throw invalid();
-  return unzip(rgb.subarray(12, 12 + length), { maxOutputLength: outputLimit });
+  if (rgb.length >= 8 && rgb.toString('latin1', 0, 4) === 'KWP1') {
+    const length = rgb.readUInt32BE(4);
+    if (length > rgb.length - 8 || length % 188 !== 0) throw invalid();
+    const packets = rgb.subarray(8, 8 + length);
+    if (!isTS(packets)) throw invalid();
+    // Cache only the video bytes, even if the image has substantial padding.
+    return Buffer.from(packets);
+  }
+  // Some feeds place ordinary image rows before the legacy payload header.
+  const marker = rgb.indexOf('TIKTIKPX');
+  const start = marker + 12;
+  if (marker < 0 || start > rgb.length) throw invalid();
+  const length = rgb.readUInt32BE(marker + 8);
+  if (!length || length > rgb.length - start) throw invalid();
+  return unzip(rgb.subarray(start, start + length), { maxOutputLength: outputLimit });
 }
 
 export async function decodeZliveMedia(input) {

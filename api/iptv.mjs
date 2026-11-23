@@ -225,9 +225,9 @@ function mediaToken(upstream, extra = {}) {
 function assetURL(base, upstream, hint = 'segment', headers, context = {}) {
   const url = new URL(upstream);
   const extension = url.pathname.match(/\.(ts|m4s|mp4|aac|mp3|vtt)$/i)?.[1]?.toLowerCase();
-  // Some video hosts disguise TS segments as .jpg. Native players use the
-  // extension to admit HLS resources, so expose media-specific local names.
-  const suffix = hint === 'playlist' || /\.m3u8$/i.test(url.pathname) ? 'playlist.m3u8'
+  // The HLS entry identifies the resource. Some TS segments have upstream
+  // names ending in .jpg or even .m3u8, which would misroute the local relay.
+  const suffix = hint === 'playlist' ? 'playlist.m3u8'
     : hint === 'key' ? 'key.bin' : hint === 'map' ? 'init.mp4' : `segment.${extension || 'ts'}`;
   return `${base}/iptv/media/${mediaToken(upstream, { ...context, ...(headers ? { headers } : {}) })}/${suffix}`;
 }
