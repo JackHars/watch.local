@@ -546,7 +546,7 @@ async function handleIPTVRequest(req, res) {
 }
 
 // Authenticated browser playback uses the same signed relay as IPTV players.
-export async function browserPlay(req, res, user, input) {
+export async function browserPlay(req, res, user, input, signal) {
   await initializeIPTV();
   return userContext.run({ user }, async () => {
     const base = origin(req);
@@ -557,13 +557,20 @@ export async function browserPlay(req, res, user, input) {
     }
     const type = input.type === 'tv' ? 'series' : input.type === 'movie' ? 'movie' : null;
     if (!type) throw new HttpError(400, 'Choose a movie, episode, or live event.');
-    const controller = new AbortController(); res.once('close', () => controller.abort());
-    const resolved = await resolveStream(input.id, type, input.season, input.episode, null, Boolean(input.fresh), { signal: controller.signal, exclude: input.exclude, provider: input.provider });
+    if (!signal) {
+      const controller = new AbortController();
+      if (res.destroyed) controller.abort();
+      else res.once('close', () => controller.abort());
+      signal = controller.signal;
+    }
+    const resolved = await resolveStream(input.id, type, input.season, input.episode, null, Boolean(input.fresh), { signal, exclude: input.exclude, provider: input.provider });
     console.info(`Web playback: ${resolved.provider} / ${resolved.server} (${type} ${input.id})`);
     // Use the resolver's validated identity and sign it with the source URL.
     // AVKit follows this link without needing browser cookies or JS <track>s.
     const { kind, tmdb, season, episode } = resolved;
-    return { url: assetURL(base, resolved.master, 'playlist', resolved.headers, { vod: { kind, tmdb, season, episode } }), provider: resolved.provider, source: resolved.server, attemptedProviders: [...new Set([...(input.exclude || []), ...resolved.provider_order])] };
+    // A lookup cancelled when another provider won can still serve a later retry.
+    const completed = resolved.provider_order.filter(p => p === resolved.provider || Object.hasOwn(resolved.provider_errors, p));
+    return { url: assetURL(base, resolved.master, 'playlist', resolved.headers, { vod: { kind, tmdb, season, episode } }), provider: resolved.provider, source: resolved.server, attemptedProviders: [...new Set([...(input.exclude || []), ...completed])] };
   });
 }
 export async function browserLive() { await initializeIPTV(); return liveTV.browserRows(); }

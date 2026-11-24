@@ -22,6 +22,43 @@ const continueWatching = createContinueWatching({ store: watchProgressStore, cat
 const library = createLibrary({ catalog: getCatalogData, localCatalog: browserCatalog, history: (user, profile) => watchProgressStore.list(user, profile, { includeCompleted: true }) });
 export function recordActivity(event) { if (event.target === '/ui/activity') return; activity.push({ ...event, at: new Date().toISOString() }); if (activity.length > 200) activity.shift(); }
 const json = (res, status, data) => { if (res.destroyed) return; res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
+
+function nativeStreamForTap(req, res, user, input, key) {
+  if (!key) return { result: browserPlay(req, res, user, input) };
+  const now = Date.now();
+  for (const [id, entry] of nativeStreams) if (entry.expires && entry.expires <= now) nativeStreams.delete(id);
+  let entry = nativeStreams.get(key);
+  if (!entry) {
+    if (nativeStreams.size >= 128) {
+      const oldest = [...nativeStreams].find(([, value]) => value.expires);
+      if (!oldest) throw problem(503, 'The server is busy opening other streams. Try again shortly.');
+      nativeStreams.delete(oldest[0]);
+    }
+    const controller = new AbortController();
+    entry = { controller, readers: 0, expires: 0, delivered: false };
+    nativeStreams.set(key, entry);
+    entry.result = browserPlay(req, res, user, input, controller.signal).finally(() => {
+      clearTimeout(entry.idleTimer);
+      entry.expires = Date.now() + 300000;
+    });
+  }
+  if (!entry.expires) {
+    clearTimeout(entry.idleTimer);
+    entry.readers++;
+    const disconnected = () => {
+      if (--entry.readers || entry.expires) return;
+      // AVKit can close its probe before it opens the next request for this tap.
+      entry.idleTimer = setTimeout(() => {
+        nativeStreams.delete(key);
+        entry.controller.abort();
+      }, 5000).unref();
+    };
+    if (res.destroyed) disconnected();
+    else res.once('close', disconnected);
+  }
+  return entry;
+}
+
 async function body(req) {
   if (!(req.headers['content-type'] || '').startsWith('application/json')) throw problem(415, 'Send JSON.');
   let text = ''; for await (const part of req) { text += part; if (Buffer.byteLength(text) > 32768) throw problem(413, 'Request too large.'); }
@@ -163,21 +200,23 @@ export async function handleWeb(req, res) {
       // Native players may probe the source repeatedly. Reuse the resolved URL
       // for this tap, including fresh-source retries, without caching across users.
       const key = input.requestId ? JSON.stringify([user.id,user.version,requestOrigin(req),url.search]) : null;
-      for (const [id, entry] of nativeStreams) if (entry.expires < Date.now()) nativeStreams.delete(id);
-      let entry = key && nativeStreams.get(key);
-      if (!entry) {
-        entry = { expires: Date.now() + 300000, result: browserPlay(req, res, user, input).then(stream => ({ stream }), error => ({ error })) };
-        if (key) {
-          while (nativeStreams.size >= 128) nativeStreams.delete(nativeStreams.keys().next().value);
-          nativeStreams.set(key, entry);
-        }
-      }
-      const { stream, error } = await entry.result;
-      if (error) throw error;
+      const entry = nativeStreamForTap(req, res, user, input, key);
+      const stream = await entry.result;
       // Native <video> errors hide HTTP response bodies. The UI can ask for the
       // outcome of the same tap without resolving another stream or downloading it.
-      if (req.headers.accept === 'application/json') { json(res, 200, { ready: true, ...(stream.attemptedProviders ? { provider: stream.provider, attemptedProviders: stream.attemptedProviders } : {}) }); return true; }
-      if (!res.destroyed) { res.writeHead(302, { Location: stream.url, 'Cache-Control': 'no-store' }); res.end(); }
+      if (req.headers.accept === 'application/json') {
+        const info = { ready: true };
+        if (stream.attemptedProviders) {
+          info.provider = stream.provider;
+          info.attemptedProviders = stream.attemptedProviders;
+          if (key && !entry.delivered) info.unopenedUrl = stream.url;
+        }
+        json(res, 200, info);
+      } else if (!res.destroyed) {
+        if (req.method === 'GET') res.once('finish', () => { entry.delivered = true; });
+        res.writeHead(302, { Location: stream.url, 'Cache-Control': 'no-store' });
+        res.end();
+      }
       return true;
     }
     if (path === '/ui/play' && req.method === 'POST') { const input=await body(req);await watchProgressStore.profile(user.id,input.profileId);json(res,200,await browserPlay(req,res,user,input));return true; }

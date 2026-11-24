@@ -31,3 +31,18 @@ test('native resolution errors are surfaced without retrying providers that have
   const recovery=createPlaybackRecovery({inspect:async()=>{throw Error('No provider returned playable HLS');},resolve:async()=>resolves++,failed:message=>errors.push(message)});
   await recovery.recover('Native video failed');assert.equal(resolves,0);assert.deepEqual(errors,['No provider returned playable HLS']);
 });
+
+test('a cancelled native probe plays its prepared source once before excluding it', async () => {
+  const replacements = [], exclusions = [];
+  const recovery = createPlaybackRecovery({
+    inspect: async () => ({ provider: 'zstream', attemptedProviders: ['zstream'], unopenedUrl: '/relay/prepared' }),
+    resolve: async exclude => { exclusions.push(exclude); return { provider: 'atlantic', url: '/relay/next' }; },
+    replace: stream => replacements.push(stream.url),
+  });
+  await recovery.recover('The first media request disconnected.');
+  assert.deepEqual(replacements, ['/relay/prepared']);
+  assert.deepEqual(exclusions, []);
+  await recovery.recover('The video could not be decoded.');
+  assert.deepEqual(replacements, ['/relay/prepared', '/relay/next']);
+  assert.deepEqual(exclusions, [['zstream']]);
+});

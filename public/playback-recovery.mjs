@@ -10,7 +10,17 @@ export function createPlaybackRecovery({ current, inspect, resolve, replace, bef
       if (busy || exhausted || signal?.aborted) return;
       busy = true; trying();
       try {
-        selected ||= await inspect();
+        if (!selected) {
+          selected = await inspect();
+          if (signal?.aborted) return;
+          // If the native probe disconnected before it got the redirect, give
+          // the player the prepared source once before moving down the list.
+          if (selected?.unopenedUrl) {
+            beforeSwitch();
+            await replace({ ...selected, url: selected.unopenedUrl });
+            return;
+          }
+        }
         if (signal?.aborted) return;
         if (!selected?.provider || excluded.has(selected.provider)) throw Error(message);
         for (const provider of selected.attemptedProviders || []) excluded.add(provider);

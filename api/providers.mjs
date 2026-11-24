@@ -360,7 +360,7 @@ async function vidsrc(input, ctx, getCatalogData) {
   throw new Error(error);
 }
 
-export function createProviderResolver({ cinejoy, getCatalogData, fetchResource, getPolicy, providerTimeoutMs = 30000, totalTimeoutMs = 180000, cacheTtlMs = 300000 }) {
+export function createProviderResolver({ cinejoy, getCatalogData, fetchResource, getPolicy, providerTimeoutMs = 30000, totalTimeoutMs = 180000, cacheTtlMs = 300000, fallbackDelayMs = 1200 }) {
   const cache = new Map();
   const adapters = { cinejoy, atlantic, tvids, zstream, vidrift, vidsrc: (input, ctx) => vidsrc(input, ctx, getCatalogData), reelix: createReelixResolver(), movy: createMovyResolver(), rive: createRiveResolver(), corsflix: createCorsflixResolver(), meowtv: createMeowtvResolver(), flickystream: createFlickystreamResolver(), dulo: createDuloResolver(), arrowtv: createArrowtvResolver(getCatalogData), ghostflix: createGhostflixResolver(), bingebang: createBingebangResolver(getCatalogData), moviebite: createMoviebiteResolver(), moonflix: createMoonflixResolver(), cinema: createCinemaResolver(), zenox: createZenoxResolver(), bingr: createBingrResolver(), rivo: createRivoResolver(), greybox: createGreyboxResolver(), stellar: createStellarResolver() };
   return async function resolve(input) {
@@ -394,24 +394,59 @@ export function createProviderResolver({ cinejoy, getCatalogData, fetchResource,
     }
     const hit = cache.get(key);
     if (!input.fresh && hit && hit.expires > Date.now()) return { ...hit.value, cached: true };
-    const overall = AbortSignal.any([AbortSignal.timeout(total), ...(input.signal ? [input.signal] : [])]);
+    const finished = new AbortController();
+    const overall = AbortSignal.any([finished.signal, AbortSignal.timeout(total), ...(input.signal ? [input.signal] : [])]);
     const tried = [], errors = {};
-    for (const provider of order) {
-      if (overall.aborted) break;
-      tried.push(provider);
+    async function attempt(provider) {
       const signal = AbortSignal.any([overall, AbortSignal.timeout(input.provider && !policy ? Math.max(timeout, 75000) : timeout)]);
       const ctx = createProviderContext({ signal, fetchResource });
+      let onAbort;
       try {
-        const result = await adapters[provider](input, ctx);
+        signal.throwIfAborted();
+        const aborted = new Promise((_, reject) => {
+          onAbort = () => reject(signal.reason);
+          signal.addEventListener('abort', onAbort, { once: true });
+        });
+        const result = await Promise.race([aborted, adapters[provider](input, ctx)]);
         signal.throwIfAborted();
         if (!result?.master) throw new Error('No playable HLS source');
-        const out = { ...result, provider, provider_order: [...tried], provider_errors: { ...errors }, tmdb: input.tmdb, kind: input.kind, season: input.season, episode: input.episode, cached: false };
+        return { provider, result };
+      } catch (error) {
+        return { provider, error: signal.aborted ? 'Provider timed out or request cancelled' : error.message || 'Provider unavailable' };
+      } finally {
+        if (onAbort) signal.removeEventListener('abort', onAbort);
+      }
+    }
+
+    const pending = new Map();
+    try {
+      // Start in configured order. A slow lookup gets a head start, then up to
+      // two more providers can look for a validated stream alongside it.
+      while (!overall.aborted && (pending.size || tried.length < order.length)) {
+        if (pending.size < 3 && tried.length < order.length) {
+          const provider = order[tried.length];
+          tried.push(provider);
+          pending.set(provider, attempt(provider));
+        }
+        const candidates = [...pending.values()];
+        let timer;
+        if (pending.size < 3 && tried.length < order.length) {
+          candidates.push(new Promise(resolve => { timer = setTimeout(resolve, fallbackDelayMs); }));
+        }
+        const settled = await Promise.race(candidates);
+        clearTimeout(timer);
+        if (!settled) continue;
+        const { provider, result, error } = settled;
+        pending.delete(provider);
+        if (error) { errors[provider] = error; continue; }
+        if (overall.aborted) break;
+        const out = { ...result, provider, provider_order: tried, provider_errors: errors, tmdb: input.tmdb, kind: input.kind, season: input.season, episode: input.episode, cached: false };
         cache.set(key, { expires: Date.now() + ttl, value: out });
         while (cache.size > 256) cache.delete(cache.keys().next().value);
         return out;
-      } catch (e) { errors[provider] = signal.aborted ? 'Provider timed out or request cancelled' : e.message; }
-    }
-    const error = overall.aborted ? failure('Playback resolution timed out or was cancelled', 504) : failure(input.exclude.length ? 'No other enabled provider has a playable source for this title right now.' : 'No provider returned playable HLS');
-    error.provider_errors = errors; error.provider_order = tried; throw error;
+      }
+      const error = overall.aborted ? failure('Playback resolution timed out or was cancelled', 504) : failure(input.exclude.length ? 'No other enabled provider has a playable source for this title right now.' : 'No provider returned playable HLS');
+      error.provider_errors = errors; error.provider_order = tried; throw error;
+    } finally { finished.abort(); }
   };
 }

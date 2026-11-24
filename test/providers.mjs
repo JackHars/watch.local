@@ -243,6 +243,26 @@ test('source requests are aborted at the provider deadline and failures are not 
   } finally { clearTimeout(keepAlive); }
 });
 
+test('a stalled provider yields to an ordered fallback and remains eligible for playback recovery', async () => {
+  let primarySignal;
+  const cinejoy = (_, { signal }) => {
+    primarySignal = signal;
+    return new Promise(() => {}); // Simulate a backend that ignores cancellation.
+  };
+  const resolver = createProviderResolver({ ...mockProvider('atlantic', 'movie'), cinejoy, fallbackDelayMs: 5 });
+  const input = { tmdb: 550, kind: 'movie', exclude: PROVIDERS.filter(p => !['cinejoy', 'atlantic'].includes(p)) };
+  const selected = await resolver(input);
+  assert.equal(selected.provider, 'atlantic');
+  assert.deepEqual(selected.provider_order, ['cinejoy', 'atlantic']);
+  assert.deepEqual(selected.provider_errors, {});
+  assert.equal(primarySignal.aborted, true);
+
+  const controller = new AbortController();
+  const pinned = resolver({ ...input, provider: 'cinejoy', signal: controller.signal });
+  controller.abort();
+  await assert.rejects(pinned, e => e.status === 504 && e.provider_order.join() === 'cinejoy');
+});
+
 test('HLS validation rejects PNG bait and validates AES-128 encrypted segments', async () => {
   const key = Buffer.alloc(16, 3), iv = Buffer.alloc(16); iv.writeBigUInt64BE(19n, 8);
   const cipher = createCipheriv('aes-128-cbc', key, iv), encrypted = b(cipher.update(ts), cipher.final());

@@ -173,7 +173,8 @@ test('CorsFlix prefers the direct English H.264 source over the HEVC-only backup
 
 test('CorsFlix fails honestly when a stream token names a different episode', async () => {
   const fixture = corsflixFetch({ episodeDelta: 1, emptyBackends: ['allmovies'] });
-  const resolve = createProviderResolver({ ...fixture, cinejoy: cinejoyStub(), getPolicy: policy() });
+  // Let the adapter finish checking its backends so we can verify its failure reason.
+  const resolve = createProviderResolver({ ...fixture, cinejoy: cinejoyStub(), getPolicy: policy(), fallbackDelayMs: 5000 });
   const result = await resolve({ tmdb: 1396, kind: 'series', season: 1, episode: 1 });
   assert.equal(result.provider, 'cinejoy');
   assert.match(result.provider_errors.corsflix, /different episode/);
@@ -201,7 +202,7 @@ test('CorsFlix treats a rate-limited empty envelope as a per-backend failure and
 
 test('CorsFlix falls back to the next provider when every backend has no streams', async () => {
   const fixture = corsflixFetch({ emptyBackends: BACKEND_PREFIXES });
-  const resolve = createProviderResolver({ ...fixture, cinejoy: cinejoyStub(), getPolicy: policy() });
+  const resolve = createProviderResolver({ ...fixture, cinejoy: cinejoyStub(), getPolicy: policy(), fallbackDelayMs: 5000 });
   const result = await resolve({ tmdb: 27205, kind: 'movie' });
   assert.equal(result.provider, 'cinejoy');
   assert.deepEqual(result.provider_order, ['corsflix', 'cinejoy']);
